@@ -164,11 +164,23 @@ describe('P2-06 multi-add and replace', () => {
 });
 
 describe('P2-06 custom edit, hide and unhide', () => {
-  it('unused-custom-deletes', () => {
+  it('unused-custom-asks-first-yes-deletes', () => {
     const app = createApp();
     const id = makeCustom(app, 'Temp Move');
-    assert.equal(app.api.deleteExercise(id), true, 'deleted');
-    assert.ok(!app.api.state.exercises.some((e) => e.id === id), 'gone from list');
+    assert.equal(app.api.deleteExercise(id), 'confirm', 'asks first via app modal');
+    assert.ok(app.api.state.exercises.some((e) => e.id === id), 'still there before confirm');
+    assert.equal(app.el('deleteExText').textContent, 'Delete Temp Move? This cannot be undone.', 'modal names it');
+    assert.equal(app.api.confirmDeleteExercise(), true, 'yes deletes');
+    assert.ok(!app.api.state.exercises.some((e) => e.id === id), 'gone after confirm');
+  });
+
+  it('delete-confirm-cancel-keeps', () => {
+    const app = createApp();
+    const id = makeCustom(app, 'Spared Move');
+    assert.equal(app.api.deleteExercise(id), 'confirm', 'asks first');
+    app.api.cancelDeleteExercise();
+    assert.ok(app.api.state.exercises.some((e) => e.id === id), 'cancel keeps it');
+    assert.equal(app.api.pendingDeleteExId, null, 'pending cleared');
   });
 
   it('used-custom-hides-with-usage-message-then-unhides', () => {

@@ -626,11 +626,10 @@
   <div class="modal" id="customExModal">
     <div class="modal-content">
       <div class="modal-header">
-        <span>New Custom Exercise</span>
+        <span id="customExModalTitle">New Custom Exercise</span>
         <button class="btn" onclick="closeModal('customExModal')">✕</button>
       </div>
       <div class="modal-body">
-        <div style="font-weight:800; font-size:16px; margin-bottom:10px;" id="customExTitle">New Custom Exercise</div>
         <input type="text" id="newExName" class="input-field" placeholder="Exercise Name (e.g. Incline Cable Fly)" maxlength="80">
         <label style="font-size:13px; color:var(--text-sub);">Equipment</label>
         <select id="newExEquipment" class="input-field"></select>
@@ -667,6 +666,23 @@
         <button class="btn" onclick="closeModal('exDetailModal')">✕</button>
       </div>
       <div class="modal-body" id="exDetailBody"></div>
+    </div>
+  </div>
+
+  <!-- DELETE CONFIRM (P2-06: app modal, never window.confirm) -->
+  <div class="modal" id="deleteExModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Delete exercise</span>
+        <button class="btn" onclick="cancelDeleteExercise()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="deleteExText" style="font-size:14px; line-height:1.6; margin-bottom:12px;"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" style="flex:1; min-height:52px;" onclick="cancelDeleteExercise()">Cancel</button>
+          <button class="btn btn-danger" style="flex:1; min-height:52px;" onclick="confirmDeleteExercise()">Yes, delete</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1178,6 +1194,7 @@
     let showHiddenExercises = false;
     let editingExId = null;
     let detailExId = null;
+    let pendingDeleteExId = null;
     /* P2-04 routine editor (personal part): editing id, delete-undo snapshot,
        update-from-workout offer and builder rest-picker routing. */
     let editingRoutineId = null;
@@ -2841,7 +2858,7 @@
     }
 
     function favStarHtml(e) {
-      return '<button class="btn" style="min-height:44px; min-width:48px;" onclick="event.stopPropagation(); toggleFav(\'' + e.id + '\')">' + (e.fav ? '★' : '☆') + '</button>';
+      return '<button class="btn" style="min-height:44px; min-width:44px; padding:6px;" onclick="event.stopPropagation(); toggleFav(\'' + e.id + '\')">' + (e.fav ? '★' : '☆') + '</button>';
     }
 
     function toggleFav(exId) {
@@ -2991,16 +3008,13 @@
           const bestStr = bestKg > 0 ? formatDisplayWeight(bestKg) + ' ' + state.unit : '—';
           const flags = (e.custom ? ' <span class="badge">custom</span>' : '') + (e.hidden ? ' <span class="badge">hidden</span>' : '') + (e.fav ? ' <span class="badge">★</span>' : '');
           return `
-            <div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer;" onclick="openExerciseDetail('${e.id}')">
+            <div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; padding:10px 12px;" onclick="openExerciseDetail('${e.id}')">
               <div style="flex:1; min-width:0;">
                 <div style="font-weight:700;">${esc(e.name)}${flags}</div>
                 <div style="margin-top:4px;">${exerciseBadgesHtml(e)}</div>
               </div>
-              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
-                <div style="text-align:right;">
-                  <div style="font-size:12px; color:var(--text-sub);">Est. 1RM</div>
-                  <div style="font-weight:800; color:var(--primary);">${bestStr}</div>
-                </div>
+              <div style="display:flex; align-items:center; gap:8px; flex:0 0 auto;">
+                <div style="font-weight:800; color:var(--primary); white-space:nowrap;">${bestStr}</div>
                 ${favStarHtml(e)}
               </div>
             </div>
@@ -3025,7 +3039,7 @@
       fillCustomExSelects();
       const ex = editingExId ? state.exercises.find(e => e.id === editingExId) : null;
       if (editingExId && !ex) editingExId = null;
-      document.getElementById('customExTitle').innerText = ex ? 'Edit Custom Exercise' : 'New Custom Exercise';
+      document.getElementById('customExModalTitle').innerText = ex ? 'Edit exercise' : 'New Custom Exercise';
       document.getElementById('newExName').value = ex ? ex.name : '';
       document.getElementById('newExEquipment').value = (ex && ex.equipment) || 'Other';
       document.getElementById('newExMuscle').value = (ex && exPrimary(ex)) || 'Chest';
@@ -3066,8 +3080,9 @@
       return true;
     }
 
-    /* Delete a custom exercise. When it is used in history or a routine it is
-       hidden instead (stays resolvable by name) and the notice says where. */
+    /* Delete a custom exercise. Unused ones ask first via the app's own
+       modal (never window.confirm). When it is used in history or a routine
+       it is hidden instead (stays resolvable by name) and the notice says where. */
     function deleteExercise(exId) {
       const idx = state.exercises.findIndex(e => e.id === exId);
       if (idx < 0) return false;
@@ -3095,11 +3110,30 @@
         alert('"' + ex.name + '" is used in ' + parts.join(' and ') + ', so it was hidden instead of deleted. Unhide it from Exercises (Show hidden).');
         return 'hidden';
       }
+      pendingDeleteExId = exId;
+      document.getElementById('deleteExText').textContent = 'Delete ' + ex.name + '? This cannot be undone.';
+      document.getElementById('deleteExModal').classList.add('open');
+      return 'confirm';
+    }
+
+    function confirmDeleteExercise() {
+      const id = pendingDeleteExId;
+      pendingDeleteExId = null;
+      if (!id) { closeModal('deleteExModal'); return false; }
+      const idx = state.exercises.findIndex(e => e.id === id);
+      if (idx < 0) { closeModal('deleteExModal'); return false; }
       state.exercises.splice(idx, 1);
       saveState();
       renderExercisesTab();
+      closeModal('deleteExModal');
       closeModal('exDetailModal');
       return true;
+    }
+
+    function cancelDeleteExercise() {
+      pendingDeleteExId = null;
+      closeModal('deleteExModal');
+      return false;
     }
 
     function unhideExercise(exId) {
@@ -3170,7 +3204,7 @@
         <div style="font-size:14px; margin-bottom:10px;">Secondary: <b>${secs}</b></div>
         <div style="font-size:14px; margin-bottom:4px;">Best set: <b>${esc(bestStr)}</b></div>
         <div style="font-size:14px; margin-bottom:10px;">Est. 1RM: <b>${esc(estStr)}</b></div>
-        <h3>Last ${hist.length} session${hist.length === 1 ? '' : 's'}</h3>
+        <h3>Recent sessions</h3>
         ${histHtml}
         <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
           <button class="btn" style="flex:1; min-height:48px;" onclick="toggleFav('${ex.id}')">${ex.fav ? '★ Unfavourite' : '☆ Favourite'}</button>

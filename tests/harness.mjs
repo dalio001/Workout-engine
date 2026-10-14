@@ -164,6 +164,8 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   openExercisePicker, renderPickerList, selectExercise,
   renderExercisesTab, openCustomExModal, saveCustomExercise,
   deleteExercise, unhideExercise, openExerciseDetail, renderExerciseDetail, fillCustomExSelects,
+  get pendingDeleteExId(){ return pendingDeleteExId; },
+  confirmDeleteExercise, cancelDeleteExercise,
   normSetType, getPrevScope, setPrevScope, getExInstanceIdx, getSetLaneIndex,
   findPreviousExercise, copyPreviousIntoSet,
   loadActiveSessionDraft, loadActiveSessionDraftRaw, resumeSavedWorkout, discardSavedDraft,
