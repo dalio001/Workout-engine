@@ -140,6 +140,10 @@ See the [video index](../research/VIDEO_REFERENCE_INDEX.md) for source IDs and e
 - [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw); use the task-specific scene links above and [video index](../research/VIDEO_REFERENCE_INDEX.md).
 - V3: owner's local screen recording of the Hevy Android first-run, 2026-10-14, 1:23. **File: `E:/My Apps/plz-fitzone/assets/videos/V3-hevy-first-run-2026-10-14.mp4`** (on the owner's PC; `assets/videos/` is git-ignored, so the video is never published). Cite as "V3 MM:SS". Full timeline in the [video index](../research/VIDEO_REFERENCE_INDEX.md).
 
+### P1-05 implementation status (2026-10-14)
+
+- [ ] in progress, awaiting owner phone check — first-run onboarding implemented in `index.html` on branch `codex/p1-05-onboarding` per `docs/pillars/plans/P1-05/PLAN.md` plus review changes. True first run seeds `state.profile = {onboardingDone:false, …}` and shows the full-screen flow (`#onboardingOverlay`, 8 steps, dots, Back/Skip every step, sticky footer); reloads mid-flow show it again. Saved states without a profile never see it; Profile gained a "My profile" section with "Set up my profile" re-run (never deletes routines/workouts/exercises — re-run offers keep vs add-missing-samples). Unit step sets the P6-01 preference without converting stored values; height (100–250 cm / 3'3"–8'2") and age/birthday (13–100) optional with in-place errors; experience gates Continue. Welcome uses `assets/brand/plz-fitzone-mascot.jpg` (125 KB, under the 150 KB limit) with `icons/mascot-96.png` fallback; all copy is original PLZ FitZone wording. Typing updates the draft only (no rebuild on input/change/blur); handler-compile coverage extended. Restore/import accept backups with or without a profile. Owner to verify on phone at 412 px: welcome slides, unit/height/age/goal/experience/routine steps, "You're ready!" → Workout tab with dismissible "How to get started" card, Profile answers + re-run.
+
 ## Next Immediate Action
 
-**Planning only:** specify P1-05's personal first-run setup (adopted from V3, owned here) with P6-01/P5-04/P0-02/P0-03, then produce P1-01's connected logger journey and state map.
+**Implemented, awaiting owner phone check:** P1-05 first-run setup above; owner verifies the flow on their phone, then produce P1-01's connected logger journey and state map.

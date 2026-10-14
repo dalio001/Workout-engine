@@ -434,6 +434,116 @@
       background: var(--bg-card);
       z-index: 2;
     }
+
+    /* P1-05 first-run onboarding: full-screen flow, max phone width 412px,
+       sticky footer keeps Back/Skip/Continue always visible. */
+    .ob-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-main);
+      z-index: 300;
+      display: none;
+      justify-content: center;
+      overflow-y: auto;
+    }
+    .ob-overlay.open { display: flex; }
+    .ob-card {
+      width: 100%;
+      max-width: 412px;
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 20px 16px 0 16px;
+    }
+    .ob-dots {
+      display: flex;
+      gap: 6px;
+      justify-content: center;
+      padding: 8px 0 4px 0;
+    }
+    .ob-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--border);
+    }
+    .ob-dot.on { background: var(--primary); }
+    .ob-body {
+      flex: 1;
+      padding: 12px 0 16px 0;
+      max-width: 100%;
+    }
+    .ob-mascot {
+      width: 120px;
+      height: 120px;
+      border-radius: 28px;
+      display: block;
+      margin: 8px auto 16px auto;
+    }
+    .ob-title {
+      font-size: 22px;
+      font-weight: 800;
+      text-align: center;
+      margin: 0 0 8px 0;
+    }
+    .ob-sub {
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text-sub);
+      text-align: center;
+      margin: 0 0 16px 0;
+    }
+    .ob-choice {
+      width: 100%;
+      min-height: 52px;
+      margin-bottom: 10px;
+      text-align: left;
+    }
+    .ob-choice.on {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .ob-seg {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .ob-seg .btn { flex: 1; min-height: 52px; }
+    .ob-seg .btn.on {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .ob-err {
+      font-size: 13px;
+      color: var(--danger);
+      min-height: 18px;
+      margin: 0 0 8px 0;
+    }
+    .ob-note {
+      font-size: 13px;
+      color: var(--text-sub);
+      line-height: 1.5;
+      margin: 0 0 12px 0;
+    }
+    .ob-footer {
+      position: sticky;
+      bottom: 0;
+      display: flex;
+      gap: 8px;
+      padding: 12px 0 calc(16px + env(safe-area-inset-bottom));
+      background: var(--bg-main);
+    }
+    .ob-footer .btn { flex: 1; min-height: 52px; }
+    .ob-slide-nav {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      margin-top: 4px;
+    }
+    .ob-slide-nav .btn { min-height: 44px; min-width: 52px; }
   </style>
 </head>
 <body>
@@ -453,6 +563,14 @@
     <section id="tab-workout" class="tab-view active">
       <h2>Quick Start</h2>
       <button class="btn btn-primary btn-block" onclick="startEmptyWorkout()">➕ Start Empty Workout</button>
+
+      <div class="card" id="gettingStartedCard" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
+          <div style="font-weight:800;">How to get started</div>
+          <button class="btn" style="padding:6px 12px; font-size:13px;" onclick="dismissGettingStarted()">✕ Dismiss</button>
+        </div>
+        <div style="font-size:14px; line-height:1.7; color:var(--text-sub);">1. Tap a routine below, then Start Routine — your previous weights show under each set.<br>2. Tap Finish to save the workout on this phone.<br>3. Back up anytime from Profile → Backup JSON.</div>
+      </div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:22px;">
         <h3 style="margin:0;">My Routines (Unlimited)</h3>
@@ -498,6 +616,11 @@
           <div style="font-size:22px; font-weight:800; color:var(--warning);" id="statSets">0</div>
           <div style="font-size:11px; color:var(--text-sub);">Total Sets</div>
         </div>
+      </div>
+
+      <div class="card" id="myProfileCard">
+        <div style="font-weight:700; margin-bottom:10px;">My profile</div>
+        <div id="myProfileBody"></div>
       </div>
 
       <div class="card">
@@ -864,6 +987,9 @@
     </div>
   </div>
 
+  <!-- FIRST-RUN ONBOARDING (P1-05): full-screen flow, rendered by renderOnboarding() -->
+  <div class="ob-overlay" id="onboardingOverlay"></div>
+
   <script>
     /* DEFAULT EXERCISES & ROUTINES */
     /* P2-06 personal catalogue (curated, ~100): compact rows
@@ -1217,6 +1343,10 @@
       if (!parsed.unit) parsed.unit = 'KG';
       if (parsed.prevScope !== 'same' && parsed.prevScope !== 'any') parsed.prevScope = 'any';
       parsed.plateSettings = normalizePlateSettings(parsed.plateSettings);
+      // P1-05: a profile in old data is preserved as-is (never dropped).
+      if (parsed.profile && typeof parsed.profile === 'object' && !Array.isArray(parsed.profile)) {
+        try { parsed.profile = normalizeProfile(parsed.profile); } catch (e) {}
+      }
       return parsed;
     }
 
@@ -1311,6 +1441,17 @@
       // P0-03: seed defaults ONLY on a true first run (no saved state at all).
       // A saved state that intentionally holds an empty array keeps it empty.
       applySeedDefaults(state, hadSavedState);
+      // P1-05: true first run starts with an unfinished profile (saved at
+      // once, so a reload mid-onboarding shows it again). Saved states
+      // WITHOUT a profile (all existing users) are left alone and never
+      // see the flow automatically.
+      if (!hadSavedState) {
+        if (!state.profile || typeof state.profile !== 'object') state.profile = defaultObProfile();
+        else state.profile = normalizeProfile(state.profile);
+        try { saveState(); } catch (e) {}
+      } else if (state.profile && typeof state.profile === 'object' && !Array.isArray(state.profile)) {
+        state.profile = normalizeProfile(state.profile);
+      }
       // P2-06: idempotent exercise normalisation on every load (no version bump).
       normalizeExercises(state);
       // P2-08: idempotent history-id backfill (no version bump); old entries
@@ -1328,6 +1469,11 @@
       renderExercisesTab();
       renderProfileStats();
       refreshUndoRestoreUI();
+      renderGettingStarted();
+      // P1-05: show the flow only for unfinished profiles (true first run
+      // or a reload mid-onboarding). Existing saved states without a
+      // profile never trigger this.
+      if (shouldShowOnboarding()) openOnboarding(true);
 
       const draft = loadActiveSessionDraft();
       if (draft) showResumeModal('load');
@@ -4007,6 +4153,7 @@
       if (pkEl) pkEl.value = ps.platesKg.join(', ');
       const plEl = document.getElementById('platePlatesLbInput');
       if (plEl) plEl.value = ps.platesLb.join(', ');
+      renderMyProfile();
 
       /* P2-06: the chart keeps its six buckets; new primaries fold into the
          legacy buckets (Biceps/Triceps/Forearms -> Arms, Quads/Hamstrings/
@@ -4163,6 +4310,503 @@
       renderProfileStats();
     }
 
+    /* P1-05 FIRST-RUN ONBOARDING (personal part): welcome + setup questions,
+       stored locally in state.profile, private, editable later in Profile.
+       Shown whenever profile.onboardingDone === false. Saved states WITHOUT
+       a profile object (all existing users) never see it automatically.
+       Re-runs from Profile NEVER delete routines, workouts or exercises.
+       Typing updates the draft only (obUpdate); the screen is rebuilt on
+       taps (choices, nav), never on input/change/blur (P2-05 lesson). */
+    var OB_STEP_COUNT = 8;
+    var OB_GOALS = ['build muscle', 'get stronger', 'lose fat', 'stay healthy'];
+    var OB_EXPERIENCE = ['beginner', 'intermediate', 'advanced'];
+    var OB_WELCOME = [
+      { t: 'Welcome to PLZ FitZone', d: 'Your own workout tracker. Log sets in seconds and keep every session saved on this phone.' },
+      { t: 'Routines that fit your week', d: 'Start from the sample routines or build your own. Your previous weights show up right under each set.' },
+      { t: 'Private by default', d: 'No account, no sharing, no surprises. Everything stays on this device — back up anytime as JSON.' }
+    ];
+    let obStep = 0;
+    let obWelcomeIdx = 0;
+    let obDraft = null;
+    let obIsFirstRun = false;
+
+    function defaultObProfile() {
+      return {
+        onboardingDone: false, v: 1,
+        goal: '', experience: '', routineChoice: '',
+        birthDate: '', age: '',
+        heightCm: '', heightUnit: 'cm', heightFt: '', heightIn: ''
+      };
+    }
+
+    function normalizeProfile(p) {
+      var d = defaultObProfile();
+      if (!p || typeof p !== 'object' || Array.isArray(p)) return d;
+      if (p.onboardingDone === true) d.onboardingDone = true;
+      if (typeof p.goal === 'string') d.goal = p.goal;
+      if (typeof p.experience === 'string') d.experience = p.experience;
+      if (typeof p.routineChoice === 'string') d.routineChoice = p.routineChoice;
+      if (typeof p.birthDate === 'string') d.birthDate = p.birthDate;
+      if (typeof p.age === 'string' || typeof p.age === 'number') d.age = p.age;
+      if (typeof p.heightCm === 'string' || typeof p.heightCm === 'number') d.heightCm = p.heightCm;
+      if (p.heightUnit === 'ftin' || p.heightUnit === 'cm') d.heightUnit = p.heightUnit;
+      if (typeof p.heightFt === 'string' || typeof p.heightFt === 'number') d.heightFt = p.heightFt;
+      if (typeof p.heightIn === 'string' || typeof p.heightIn === 'number') d.heightIn = p.heightIn;
+      return d;
+    }
+
+    function shouldShowOnboarding() {
+      return !!(state && state.profile && state.profile.onboardingDone === false);
+    }
+
+    function openOnboarding(isFirst) {
+      obIsFirstRun = !!isFirst;
+      var src = (state && state.profile && typeof state.profile === 'object') ? state.profile : defaultObProfile();
+      obDraft = normalizeProfile(src);
+      obDraft.unit = (state && (state.unit === 'LBS' || state.unit === 'KG')) ? state.unit : 'KG';
+      if (!obDraft.routineChoice) obDraft.routineChoice = obIsFirstRun ? 'template' : 'keep';
+      obStep = 0;
+      obWelcomeIdx = 0;
+      renderOnboarding();
+      document.getElementById('onboardingOverlay').classList.add('open');
+    }
+
+    function startOnboardingRerun() {
+      openOnboarding(false);
+    }
+
+    function closeOnboarding() {
+      document.getElementById('onboardingOverlay').classList.remove('open');
+    }
+
+    function obHeightError(d) {
+      d = d || obDraft || {};
+      var unit = (d.heightUnit === 'ftin') ? 'ftin' : 'cm';
+      if (unit === 'cm') {
+        var raw = String(d.heightCm == null ? '' : d.heightCm).trim();
+        if (raw === '') return '';
+        var n = Number(raw);
+        if (!isFinite(n)) return 'Enter a height in cm, or leave it empty.';
+        if (n < 100 || n > 250) return 'Height looks out of range (100–250 cm).';
+        return '';
+      }
+      var fRaw = String(d.heightFt == null ? '' : d.heightFt).trim();
+      var iRaw = String(d.heightIn == null ? '' : d.heightIn).trim();
+      if (fRaw === '' && iRaw === '') return '';
+      var f = (fRaw === '') ? 0 : Number(fRaw);
+      var ii = (iRaw === '') ? 0 : Number(iRaw);
+      if (!isFinite(f) || !isFinite(ii) || Math.floor(f) !== f || Math.floor(ii) !== ii) {
+        return 'Enter whole feet and inches, or leave it empty.';
+      }
+      if (f < 0 || f > 8 || ii < 0 || ii > 11) return 'Feet and inches look out of range.';
+      var total = f * 12 + ii;
+      if (total < 39 || total > 98) return 'Height looks out of range (3\'3"–8\'2").';
+      return '';
+    }
+
+    function obAgeFor(birthStr) {
+      var parts = String(birthStr || '').split('-');
+      if (parts.length !== 3) return null;
+      var y = Number(parts[0]);
+      var m = Number(parts[1]);
+      var d = Number(parts[2]);
+      if (!isFinite(y) || !isFinite(m) || !isFinite(d)) return null;
+      if (Math.floor(y) !== y || Math.floor(m) !== m || Math.floor(d) !== d) return null;
+      if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+      var now = new Date();
+      var age = now.getFullYear() - y;
+      if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age--;
+      if (age < 0 || age > 150) return null;
+      return age;
+    }
+
+    function obAgeError(d) {
+      d = d || obDraft || {};
+      var aRaw = String(d.age == null ? '' : d.age).trim();
+      var bRaw = String(d.birthDate == null ? '' : d.birthDate).trim();
+      if (aRaw === '' && bRaw === '') return '';
+      if (aRaw !== '') {
+        var a = Number(aRaw);
+        if (!isFinite(a) || Math.floor(a) !== a) return 'Enter a whole age, or leave it empty.';
+        if (a < 13 || a > 100) return 'Age looks out of range (13–100).';
+      }
+      if (bRaw !== '') {
+        var age = obAgeFor(bRaw);
+        if (age === null) return 'Enter a valid birthday, or leave it empty.';
+        if (age < 13 || age > 100) return 'That birthday gives an age outside 13–100.';
+      }
+      return '';
+    }
+
+    function obCanonicalHeightCm(d) {
+      d = d || obDraft || {};
+      if (d.heightUnit === 'ftin') {
+        var fRaw = String(d.heightFt == null ? '' : d.heightFt).trim();
+        var iRaw = String(d.heightIn == null ? '' : d.heightIn).trim();
+        if (fRaw === '' && iRaw === '') return '';
+        var f = (fRaw === '') ? 0 : Number(fRaw);
+        var ii = (iRaw === '') ? 0 : Number(iRaw);
+        if (!isFinite(f) || !isFinite(ii)) return '';
+        return Math.round((f * 12 + ii) * 2.54 * 10) / 10;
+      }
+      var raw = String(d.heightCm == null ? '' : d.heightCm).trim();
+      if (raw === '') return '';
+      var n = Number(raw);
+      if (!isFinite(n)) return '';
+      return Math.round(n * 10) / 10;
+    }
+
+    function obCanContinue() {
+      if (!obDraft) return false;
+      if (obStep === 5) return OB_EXPERIENCE.indexOf(obDraft.experience) >= 0;
+      if (obStep === 2) return obHeightError() === '';
+      if (obStep === 3) return obAgeError() === '';
+      return true;
+    }
+
+    /* Model-only update for typed fields: never rebuilds the screen, so
+       inputs keep focus while typing. Only the error line and the Continue
+       button state are touched in place. */
+    function obUpdate(field, value) {
+      if (!obDraft) return;
+      obDraft[field] = value;
+      var err = '';
+      if (obStep === 2) err = obHeightError();
+      if (obStep === 3) err = obAgeError();
+      var errEl = document.getElementById('obFieldError');
+      if (errEl) errEl.textContent = err;
+      var cont = document.getElementById('obContinueBtn');
+      if (cont) {
+        if (err) cont.setAttribute('disabled', 'disabled');
+        else cont.removeAttribute('disabled');
+      }
+    }
+
+    function obSetUnit(u) {
+      if (!obDraft) return;
+      obDraft.unit = (u === 'LBS') ? 'LBS' : 'KG';
+      renderOnboarding();
+    }
+
+    function obSetHeightUnit(u) {
+      if (!obDraft) return;
+      obDraft.heightUnit = (u === 'ftin') ? 'ftin' : 'cm';
+      renderOnboarding();
+    }
+
+    function obSetGoal(g) {
+      if (!obDraft) return;
+      obDraft.goal = (OB_GOALS.indexOf(g) >= 0) ? g : '';
+      renderOnboarding();
+    }
+
+    function obSetExperience(e) {
+      if (!obDraft) return;
+      obDraft.experience = (OB_EXPERIENCE.indexOf(e) >= 0) ? e : '';
+      renderOnboarding();
+    }
+
+    function obSetRoutineChoice(c) {
+      if (!obDraft) return;
+      obDraft.routineChoice = c;
+      renderOnboarding();
+    }
+
+    function obWelcomeGo(i) {
+      obWelcomeIdx = Math.max(0, Math.min(OB_WELCOME.length - 1, i));
+      renderOnboarding();
+    }
+
+    function obGoStep(n) {
+      if (!obDraft) return;
+      if (n < 0) n = 0;
+      if (n > OB_STEP_COUNT - 1) n = OB_STEP_COUNT - 1;
+      obStep = n;
+      renderOnboarding();
+    }
+
+    function obBack() {
+      if (!obDraft) return;
+      if (obStep === 0 && obWelcomeIdx > 0) {
+        obWelcomeIdx--;
+        renderOnboarding();
+        return;
+      }
+      obGoStep(obStep - 1);
+    }
+
+    function obSkip() {
+      if (!obDraft) return;
+      if (obStep === 2) {
+        obDraft.heightCm = '';
+        obDraft.heightFt = '';
+        obDraft.heightIn = '';
+      }
+      if (obStep === 3) {
+        obDraft.age = '';
+        obDraft.birthDate = '';
+      }
+      if (obStep >= OB_STEP_COUNT - 1) {
+        finishOnboarding();
+        return;
+      }
+      obStep++;
+      renderOnboarding();
+    }
+
+    function obContinue() {
+      if (!obDraft) return;
+      if (!obCanContinue()) return;
+      if (obStep === 0 && obWelcomeIdx < OB_WELCOME.length - 1) {
+        obWelcomeIdx++;
+        renderOnboarding();
+        return;
+      }
+      if (obStep >= OB_STEP_COUNT - 1) {
+        finishOnboarding();
+        return;
+      }
+      obStep++;
+      renderOnboarding();
+    }
+
+    function obDotsHtml() {
+      var html = '<div class="ob-dots">';
+      for (var i = 0; i < OB_STEP_COUNT; i++) {
+        html += '<span class="ob-dot' + (i === obStep ? ' on' : '') + '"></span>';
+      }
+      return html + '</div>';
+    }
+
+    function obChoiceHtml(label, sub, value, group) {
+      var sel = (group === 'goal' && obDraft.goal === value) ||
+        (group === 'exp' && obDraft.experience === value) ||
+        (group === 'routine' && obDraft.routineChoice === value);
+      var fn = group === 'goal' ? 'obSetGoal' : (group === 'exp' ? 'obSetExperience' : 'obSetRoutineChoice');
+      return '<button class="btn ob-choice' + (sel ? ' on' : '') + '" onclick="' + fn + '(\'' + value + '\')">' +
+        '<span><b>' + esc(label) + '</b>' + (sub ? '<br><span style="font-weight:400; font-size:13px; opacity:0.85;">' + esc(sub) + '</span>' : '') + '</span></button>';
+    }
+
+    function obStepBodyHtml() {
+      var d = obDraft;
+      if (obStep === 0) {
+        var s = OB_WELCOME[obWelcomeIdx];
+        var dots = '';
+        for (var i = 0; i < OB_WELCOME.length; i++) {
+          dots += '<button class="btn" style="min-height:44px; min-width:44px; padding:4px 8px;" onclick="obWelcomeGo(' + i + ')">' + (i === obWelcomeIdx ? '●' : '○') + '</button>';
+        }
+        return '<img class="ob-mascot" src="./assets/brand/plz-fitzone-mascot.jpg" alt="PLZ FitZone mascot" width="120" height="120" onerror="this.onerror=null;this.src=\'./icons/mascot-96.png\'">' +
+          '<h2 class="ob-title">' + esc(s.t) + '</h2>' +
+          '<p class="ob-sub">' + esc(s.d) + '</p>' +
+          '<div class="ob-slide-nav">' +
+          '<button class="btn" onclick="obBack()">‹</button>' + dots +
+          '<button class="btn" onclick="obContinue()">›</button></div>';
+      }
+      if (obStep === 1) {
+        return '<h2 class="ob-title">Which weights do you lift in?</h2>' +
+          '<p class="ob-sub">Only changes how weights are shown. Stored values never change.</p>' +
+          '<div class="ob-seg"><button class="btn' + (d.unit === 'KG' ? ' on' : '') + '" onclick="obSetUnit(\'KG\')">KG</button>' +
+          '<button class="btn' + (d.unit === 'LBS' ? ' on' : '') + '" onclick="obSetUnit(\'LBS\')">LBS</button></div>' +
+          '<p class="ob-note">You can switch anytime with the KG/LBS button at the top.</p>';
+      }
+      if (obStep === 2) {
+        var cmMode = d.heightUnit !== 'ftin';
+        var seg = '<div class="ob-seg"><button class="btn' + (cmMode ? ' on' : '') + '" onclick="obSetHeightUnit(\'cm\')">cm</button>' +
+          '<button class="btn' + (!cmMode ? ' on' : '') + '" onclick="obSetHeightUnit(\'ftin\')">ft / in</button></div>';
+        var fields = cmMode
+          ? '<input type="number" id="obHeightCm" class="input-field" inputmode="decimal" placeholder="Height in cm (optional)" value="' + esc(String(d.heightCm == null ? '' : d.heightCm)) + '" oninput="obUpdate(\'heightCm\', this.value)">'
+          : '<div style="display:flex; gap:8px;"><input type="number" id="obHeightFt" class="input-field" inputmode="numeric" placeholder="ft (optional)" value="' + esc(String(d.heightFt == null ? '' : d.heightFt)) + '" oninput="obUpdate(\'heightFt\', this.value)">' +
+          '<input type="number" id="obHeightIn" class="input-field" inputmode="numeric" placeholder="in (optional)" value="' + esc(String(d.heightIn == null ? '' : d.heightIn)) + '" oninput="obUpdate(\'heightIn\', this.value)"></div>';
+        return '<h2 class="ob-title">How tall are you?</h2>' +
+          '<p class="ob-sub">Optional. Stays on this phone.</p>' + seg + fields +
+          '<p class="ob-err" id="obFieldError">' + esc(obHeightError()) + '</p>';
+      }
+      if (obStep === 3) {
+        return '<h2 class="ob-title">When were you born?</h2>' +
+          '<p class="ob-sub">Optional. Birthday or age — whichever you prefer. Stays on this phone.</p>' +
+          '<input type="number" id="obAge" class="input-field" inputmode="numeric" placeholder="Age (optional)" value="' + esc(String(d.age == null ? '' : d.age)) + '" oninput="obUpdate(\'age\', this.value)">' +
+          '<input type="date" id="obBirthDate" class="input-field" value="' + esc(String(d.birthDate == null ? '' : d.birthDate)) + '" oninput="obUpdate(\'birthDate\', this.value)">' +
+          '<p class="ob-err" id="obFieldError">' + esc(obAgeError()) + '</p>';
+      }
+      if (obStep === 4) {
+        return '<h2 class="ob-title">What is your top goal?</h2>' +
+          '<p class="ob-sub">Pick one — or skip. You can change it later in Profile.</p>' +
+          obChoiceHtml('Build muscle', 'Grow size with steady training', 'build muscle', 'goal') +
+          obChoiceHtml('Get stronger', 'Lift heavier over time', 'get stronger', 'goal') +
+          obChoiceHtml('Lose fat', 'Train regularly alongside your own plan', 'lose fat', 'goal') +
+          obChoiceHtml('Stay healthy', 'Keep moving and feel good', 'stay healthy', 'goal');
+      }
+      if (obStep === 5) {
+        return '<h2 class="ob-title">How experienced are you?</h2>' +
+          '<p class="ob-sub">Choose one to continue.</p>' +
+          obChoiceHtml('Beginner', 'Less than 1 year of training', 'beginner', 'exp') +
+          obChoiceHtml('Intermediate', '1–3 years of training', 'intermediate', 'exp') +
+          obChoiceHtml('Advanced', 'More than 3 years of training', 'advanced', 'exp');
+      }
+      if (obStep === 6) {
+        if (obIsFirstRun) {
+          return '<h2 class="ob-title">How do you want to start?</h2>' +
+            '<p class="ob-sub">Samples give you something to train today. Your own plan starts empty.</p>' +
+            obChoiceHtml('Start from a template', 'Keep the 3 sample routines', 'template', 'routine') +
+            obChoiceHtml('Build my own', 'Start with no routines; create them yourself', 'own', 'routine');
+        }
+        return '<h2 class="ob-title">Sample routines</h2>' +
+          '<p class="ob-sub">Your routines, workouts and exercises are never touched.</p>' +
+          obChoiceHtml('Keep my routines as they are', 'Change nothing', 'keep', 'routine') +
+          obChoiceHtml('Add the sample routines', 'Adds any missing samples alongside yours', 'addsamples', 'routine');
+      }
+      return '<img class="ob-mascot" src="./assets/brand/plz-fitzone-mascot.jpg" alt="PLZ FitZone mascot" width="120" height="120" onerror="this.onerror=null;this.src=\'./icons/mascot-96.png\'">' +
+        '<h2 class="ob-title">You are ready!</h2>' +
+        '<p class="ob-sub">Your answers are saved on this phone. Edit them anytime in Profile → My profile.</p>';
+    }
+
+    function renderOnboarding() {
+      var overlay = document.getElementById('onboardingOverlay');
+      if (!overlay || !obDraft) return;
+      var can = obCanContinue();
+      var contLabel = (obStep >= OB_STEP_COUNT - 1) ? 'Start training' : 'Continue';
+      overlay.innerHTML = '<div class="ob-card">' + obDotsHtml() +
+        '<div class="ob-body">' + obStepBodyHtml() + '</div>' +
+        '<div class="ob-footer">' +
+        '<button class="btn" id="obBackBtn" onclick="obBack()">Back</button>' +
+        '<button class="btn" id="obSkipBtn" onclick="obSkip()">Skip</button>' +
+        '<button class="btn btn-primary" id="obContinueBtn" onclick="obContinue()"' + (can ? '' : ' disabled') + '>' + contLabel + '</button>' +
+        '</div></div>';
+    }
+
+    /* First-run "own" removes only the just-seeded samples (matched by id —
+       nothing else can exist yet, the flow blocks the UI). Never used on
+       re-runs. */
+    function removeSeededSampleRoutines() {
+      if (!state || !Array.isArray(state.routines)) return;
+      var ids = {};
+      DEFAULT_ROUTINES.forEach(function (r) { ids[r.id] = true; });
+      state.routines = state.routines.filter(function (r) { return !(r && ids[r.id]); });
+    }
+
+    /* Re-run "add samples": adds missing samples by name, never removes or
+       replaces anything. */
+    function addMissingSampleRoutines() {
+      if (!state) return;
+      if (!Array.isArray(state.routines)) state.routines = [];
+      var names = {};
+      var taken = {};
+      state.routines.forEach(function (r) {
+        if (!r) return;
+        taken[r.id] = true;
+        if (typeof r.name === 'string') names[String(r.name).trim().toLowerCase()] = true;
+      });
+      DEFAULT_ROUTINES.forEach(function (s) {
+        if (names[String(s.name).trim().toLowerCase()]) return;
+        var copy = JSON.parse(JSON.stringify(s));
+        var id = copy.id;
+        var n = 2;
+        while (taken[id]) { id = copy.id + '-' + (n++); }
+        copy.id = id;
+        taken[id] = true;
+        names[String(copy.name).trim().toLowerCase()] = true;
+        state.routines.push(copy);
+      });
+    }
+
+    function finishOnboarding() {
+      if (!obDraft) {
+        closeOnboarding();
+        return;
+      }
+      var d = obDraft;
+      if (!state || typeof state !== 'object') state = { unit: 'KG' };
+      state.unit = (d.unit === 'LBS') ? 'LBS' : 'KG';
+      var prof = normalizeProfile(d);
+      prof.routineChoice = (typeof d.routineChoice === 'string') ? d.routineChoice : '';
+      prof.heightCm = obCanonicalHeightCm(d);
+      prof.onboardingDone = true;
+      state.profile = prof;
+      if (obIsFirstRun) {
+        if (d.routineChoice === 'own') removeSeededSampleRoutines();
+      } else if (d.routineChoice === 'addsamples') {
+        addMissingSampleRoutines();
+      }
+      state.gettingStartedDismissed = false;
+      saveState();
+      obDraft = null;
+      closeOnboarding();
+      document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
+      renderRoutines();
+      renderGettingStarted();
+      renderProfileStats();
+      showWorkoutTab();
+    }
+
+    function showWorkoutTab() {
+      var views = document.querySelectorAll('.tab-view');
+      for (var i = 0; i < views.length; i++) views[i].classList.remove('active');
+      document.getElementById('tab-workout').classList.add('active');
+      var navs = document.querySelectorAll('.nav-item');
+      for (var j = 0; j < navs.length; j++) navs[j].classList.remove('active');
+      if (navs[0]) navs[0].classList.add('active');
+      renderRoutines();
+    }
+
+    function renderGettingStarted() {
+      var card = document.getElementById('gettingStartedCard');
+      if (!card) return;
+      var show = !!(state && state.profile && state.profile.onboardingDone === true && !state.gettingStartedDismissed);
+      card.style.display = show ? '' : 'none';
+    }
+
+    function dismissGettingStarted() {
+      if (!state || typeof state !== 'object') return;
+      state.gettingStartedDismissed = true;
+      try { saveState(); } catch (e) {}
+      renderGettingStarted();
+    }
+
+    function obFormatHeight(p) {
+      if (!p) return '—';
+      if (p.heightUnit === 'ftin' && (String(p.heightFt).trim() !== '' || String(p.heightIn).trim() !== '')) {
+        var f = String(p.heightFt == null || String(p.heightFt).trim() === '' ? 0 : p.heightFt);
+        var ii = String(p.heightIn == null || String(p.heightIn).trim() === '' ? 0 : p.heightIn);
+        var cm = (p.heightCm === '' || p.heightCm == null) ? '' : ' (' + esc(String(p.heightCm)) + ' cm)';
+        return esc(f) + '’' + esc(ii) + '”' + cm;
+      }
+      if (p.heightCm === '' || p.heightCm == null) return '—';
+      return esc(String(p.heightCm)) + ' cm';
+    }
+
+    function obFormatAge(p) {
+      if (!p) return '—';
+      var b = String(p.birthDate == null ? '' : p.birthDate).trim();
+      var a = String(p.age == null ? '' : p.age).trim();
+      if (b !== '') {
+        var derived = obAgeFor(b);
+        return esc(b) + (derived === null ? '' : ' (age ' + derived + ')');
+      }
+      if (a !== '') return 'Age ' + esc(a);
+      return '—';
+    }
+
+    function renderMyProfile() {
+      var body = document.getElementById('myProfileBody');
+      if (!body) return;
+      var p = (state && state.profile && typeof state.profile === 'object') ? state.profile : null;
+      if (!p) {
+        body.innerHTML = '<div style="font-size:14px; color:var(--text-sub); margin-bottom:10px;">You have not set up your profile yet. Answer a few quick questions — everything stays on this phone.</div>' +
+          '<button class="btn btn-primary btn-block" onclick="startOnboardingRerun()">Set up my profile</button>';
+        return;
+      }
+      var row = function (k, v) {
+        return '<div style="display:flex; justify-content:space-between; gap:8px; font-size:14px; padding:6px 0; border-bottom:1px solid var(--border);"><span style="color:var(--text-sub);">' + k + '</span><b>' + v + '</b></div>';
+      };
+      body.innerHTML =
+        row('Weight unit', esc(state.unit === 'LBS' ? 'LBS' : 'KG')) +
+        row('Top goal', p.goal ? esc(p.goal) : '—') +
+        row('Experience', p.experience ? esc(p.experience) : '—') +
+        row('Height', obFormatHeight(p)) +
+        row('Birthday', obFormatAge(p)) +
+        '<button class="btn btn-block" style="margin-top:10px;" onclick="startOnboardingRerun()">Edit / re-run setup</button>';
+    }
+
     /* P0-03 + P4-01: SAFE RESTORE — validate before mutation, preview, undo.
        Storage keys unchanged. Nothing here mutates state/storage until the
        user confirms in the preview modal. */
@@ -4233,6 +4877,11 @@
       if ('unit' in input && input.unit !== undefined && input.unit !== 'KG' && input.unit !== 'LBS') {
         return { ok: false, error: 'Invalid unit in backup (expected "KG" or "LBS"). Nothing was changed.' };
       }
+      // P1-05: backups with or without a profile are both fine; a profile
+      // must be an object when present. The export always includes it.
+      if ('profile' in input && input.profile !== undefined && input.profile !== null && !isPlainObject(input.profile)) {
+        return { ok: false, error: 'Invalid profile in backup (expected an object). Nothing was changed.' };
+      }
       const data = migrateParsedStateToV2(cloneForRestore(input));
       normalizeExercises(data, true);
       if (!Array.isArray(data.history)) data.history = [];
@@ -4241,6 +4890,17 @@
       if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
       if (data.prevScope !== 'same' && data.prevScope !== 'any') data.prevScope = 'any';
       data.plateSettings = normalizePlateSettings(data.plateSettings);
+      // P1-05: keep a valid profile from the backup (missing stays missing,
+      // which never forces onboarding); no getting-started surprise on
+      // restore unless the backup explicitly left the card up.
+      if (data.profile && typeof data.profile === 'object' && !Array.isArray(data.profile)) {
+        data.profile = normalizeProfile(data.profile);
+      } else if ('profile' in data && data.profile != null) {
+        delete data.profile;
+      }
+      if (data.gettingStartedDismissed !== true && data.gettingStartedDismissed !== false) {
+        data.gettingStartedDismissed = true;
+      }
       // P2-08: old backups without workout ids get them on the migrated copy,
       // so the id check below passes for everything backfillable.
       ensureHistoryIds(data.history);
@@ -4420,6 +5080,9 @@
       ensureHistoryIds(state.history);
       if (!state.unit) state.unit = 'KG';
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
+      if (state.profile && typeof state.profile === 'object' && !Array.isArray(state.profile)) {
+        state.profile = normalizeProfile(state.profile);
+      }
       saveState();
       closeModal('restoreModal');
       restoreDoneThisSession = true;
@@ -4430,6 +5093,12 @@
       renderExercisesTab();
       renderProfileStats();
       refreshUndoRestoreUI();
+      renderGettingStarted();
+      // P1-05: a restored backup that never finished setup re-opens it in
+      // safe re-run mode (never deletes). Backups without a profile show
+      // nothing new. A finished profile closes any stale overlay + draft.
+      if (shouldShowOnboarding()) openOnboarding(false);
+      else { obDraft = null; closeOnboarding(); }
     }
 
     function undoLastRestore() {

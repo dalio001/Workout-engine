@@ -313,6 +313,31 @@ describe('P2-06 generated handlers compile and work', () => {
     assert.ok(dir.includes('Incline Dumbbell Press'), 'chest exercise shown');
     assert.ok(!dir.includes('Pull-Up'), 'non-chest exercise hidden');
   });
+
+  it('onboarding-and-profile-handlers-compile', () => {
+    const app = createApp(); // true first run: overlay open
+    const seen = [];
+    for (let s = 0; s < 8; s++) {
+      app.api.obGoStep(s);
+      if (s === 0) {
+        for (let w = 0; w < 3; w++) { app.api.obWelcomeGo(w); seen.push(app.el('onboardingOverlay').innerHTML); }
+      } else {
+        seen.push(app.el('onboardingOverlay').innerHTML);
+      }
+    }
+    app.api.startOnboardingRerun();
+    app.api.obContinue(); app.api.obContinue(); app.api.obContinue();
+    app.api.obContinue(); app.api.obContinue(); app.api.obContinue();
+    app.api.obSetGoal('build muscle'); app.api.obContinue();
+    app.api.obSetExperience('beginner'); app.api.obContinue();
+    app.api.obContinue(); app.api.obContinue(); app.api.obContinue();
+    assert.equal(app.api.state.profile.onboardingDone, true, 'flow finished');
+    seen.push(app.el('myProfileBody').innerHTML);
+    seen.push(app.el('gettingStartedCard').innerHTML !== undefined ? app.el('gettingStartedCard').innerHTML : '');
+    const attrs = [...seen.join('').matchAll(/on(?:click|change|input|error)="([^"]*)"/g)].map((m) => m[1]);
+    assert.ok(attrs.length > 15, 'onboarding handlers exist to check, found ' + attrs.length);
+    attrs.forEach((a) => { new Function(a); }); // throws on any syntax error
+  });
 });
 
 describe('P2-06 restore compatibility', () => {

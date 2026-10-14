@@ -77,6 +77,7 @@ export function makeElement(tag = 'div') {
     click() {},
     setAttribute(k, v) { this._attrs = this._attrs || {}; this._attrs[String(k)] = String(v); },
     getAttribute(k) { return (this._attrs && String(k) in this._attrs) ? this._attrs[String(k)] : null; },
+    removeAttribute(k) { if (this._attrs) delete this._attrs[String(k)]; },
     querySelector() { return null; },
     querySelectorAll() { return []; },
   };
@@ -189,6 +190,16 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   migrateParsedStateToV2, applySeedDefaults,
   validateBackupData, describeRestoreSummary, showRestorePreview,
   cancelRestore, confirmRestore, undoLastRestore,
+  defaultObProfile, normalizeProfile, shouldShowOnboarding,
+  openOnboarding, startOnboardingRerun, closeOnboarding, renderOnboarding,
+  obGoStep, obBack, obSkip, obContinue, obWelcomeGo,
+  obUpdate, obSetUnit, obSetHeightUnit, obSetGoal, obSetExperience, obSetRoutineChoice,
+  obHeightError, obAgeError, obAgeFor, obCanonicalHeightCm, obCanContinue, finishOnboarding,
+  addMissingSampleRoutines, removeSeededSampleRoutines,
+  showWorkoutTab, renderGettingStarted, dismissGettingStarted,
+  renderMyProfile, obFormatHeight, obFormatAge,
+  get obStep(){ return obStep; }, get obDraft(){ return obDraft; },
+  get obWelcomeIdx(){ return obWelcomeIdx; }, get obIsFirstRun(){ return obIsFirstRun; },
 };`;
 
 // Creates one app instance: runs init() (the script self-initializes) in a
