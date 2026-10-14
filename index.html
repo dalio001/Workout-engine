@@ -536,6 +536,7 @@
       background: var(--bg-main);
     }
     .ob-footer .btn { flex: 1; min-height: 52px; }
+    .ob-footer .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .ob-slide-nav {
       display: flex;
       align-items: center;
@@ -4591,16 +4592,14 @@
       var d = obDraft;
       if (obStep === 0) {
         var s = OB_WELCOME[obWelcomeIdx];
-        var dots = '';
+        var dots = '<div class="ob-dots" style="margin-top:8px;">';
         for (var i = 0; i < OB_WELCOME.length; i++) {
-          dots += '<button class="btn" style="min-height:44px; min-width:44px; padding:4px 8px;" onclick="obWelcomeGo(' + i + ')">' + (i === obWelcomeIdx ? '●' : '○') + '</button>';
+          dots += '<span class="ob-dot' + (i === obWelcomeIdx ? ' on' : '') + '"></span>';
         }
+        dots += '</div>';
         return '<img class="ob-mascot" src="./assets/brand/plz-fitzone-mascot.jpg" alt="PLZ FitZone mascot" width="120" height="120" onerror="this.onerror=null;this.src=\'./icons/mascot-96.png\'">' +
           '<h2 class="ob-title">' + esc(s.t) + '</h2>' +
-          '<p class="ob-sub">' + esc(s.d) + '</p>' +
-          '<div class="ob-slide-nav">' +
-          '<button class="btn" onclick="obBack()">‹</button>' + dots +
-          '<button class="btn" onclick="obContinue()">›</button></div>';
+          '<p class="ob-sub">' + esc(s.d) + '</p>' + dots;
       }
       if (obStep === 1) {
         return '<h2 class="ob-title">Which weights do you lift in?</h2>' +
@@ -4625,6 +4624,7 @@
         return '<h2 class="ob-title">When were you born?</h2>' +
           '<p class="ob-sub">Optional. Birthday or age — whichever you prefer. Stays on this phone.</p>' +
           '<input type="number" id="obAge" class="input-field" inputmode="numeric" placeholder="Age (optional)" value="' + esc(String(d.age == null ? '' : d.age)) + '" oninput="obUpdate(\'age\', this.value)">' +
+          '<p class="ob-note" style="margin:8px 0 4px;">or your birthday</p>' +
           '<input type="date" id="obBirthDate" class="input-field" value="' + esc(String(d.birthDate == null ? '' : d.birthDate)) + '" oninput="obUpdate(\'birthDate\', this.value)">' +
           '<p class="ob-err" id="obFieldError">' + esc(obAgeError()) + '</p>';
       }
