@@ -265,6 +265,24 @@
       outline: none;
     }
     .set-input:focus { border-color: var(--primary); }
+    .set-input.invalid { border-color: var(--danger); }
+    .set-error {
+      grid-column: 1 / -1;
+      font-size: 12px;
+      color: #fca5a5;
+      text-align: left;
+      padding: 0 4px 4px 4px;
+    }
+    .rest-chip {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
 
     .check-btn {
       width: 34px;
@@ -569,6 +587,35 @@
     </div>
   </div>
 
+  <!-- FINISH REVIEW MODAL (P2-01 personal part) -->
+  <div class="modal" id="finishReviewModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Finish workout?</span>
+        <button class="btn" onclick="finishReviewBack()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="finishReviewText" style="font-size:14px; line-height:1.6; margin-bottom:12px;"></div>
+        <button class="btn btn-primary btn-block" onclick="finishReviewTickAll()">Tick them as done</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="finishReviewDrop()">Drop them</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="finishReviewBack()">Go back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PER-EXERCISE REST PICKER (P2-03 personal part) -->
+  <div class="modal" id="restPickerModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Rest for this exercise</span>
+        <button class="btn" onclick="closeModal('restPickerModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="restPickerList" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- RESUME / DISCARD DRAFT MODAL (P0-02, reuses .modal style) -->
   <div class="modal" id="resumeModal">
     <div class="modal-content">
@@ -772,6 +819,15 @@
     let restInterval = null;
     let restRemaining = 0;
     let restDeadline = null;
+    /* P2-02 set validation (personal part): canonical kg 0..1000, reps whole 1..1000. */
+    const SET_MAX_WEIGHT_KG = 1000;
+    const SET_MAX_REPS = 1000;
+    let setInputErrors = {}; // key "exIdx:sIdx" -> { weight: '', reps: '' }
+    /* P2-01 finish review (personal part): true while the review modal is open. */
+    let finishReviewPending = false;
+    /* P2-03 per-exercise rest (personal part): seconds; 0 = Off. */
+    const REST_OPTIONS = [0, 30, 45, 60, 90, 120, 150, 180, 240, 300];
+    let restPickerTarget = null;
     let pickerTarget = 'workout';
     let tempRoutineExercises = [];
     // NOTE: storage keys 'hevy_clone_state' and 'hevy_clone_active_session' are
@@ -839,7 +895,8 @@
         title: activeWorkout.title,
         startTime: activeWorkout.startTime,
         exercises: activeWorkout.exercises,
-        restDeadline: restDeadline
+        restDeadline: restDeadline,
+        routineId: activeWorkout.routineId || null
       };
       try {
         localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(draft));
@@ -898,8 +955,11 @@
         title: draft.title || 'Workout',
         startTime: draft.startTime,
         exercises: draft.exercises,
-        finishing: false
+        finishing: false,
+        routineId: draft.routineId || null
       };
+      setInputErrors = {};
+      finishReviewPending = false;
       restDeadline = (typeof draft.restDeadline === 'number' && draft.restDeadline > Date.now()) ? draft.restDeadline : null;
       restRemaining = restDeadline ? Math.max(0, Math.ceil((restDeadline - Date.now()) / 1000)) : 0;
       document.getElementById('activeWorkoutTitle').value = activeWorkout.title;
@@ -957,6 +1017,9 @@
       activeWorkout = null;
       restDeadline = null;
       restRemaining = 0;
+      setInputErrors = {};
+      finishReviewPending = false;
+      restPickerTarget = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
       const bar = document.getElementById('restTimerBar');
@@ -1084,6 +1147,132 @@
       return null;
     }
 
+    /* P2-02: validation helpers. Weight is canonical kg (0 allowed for
+       bodyweight); reps must be a whole number 1..1000. Empty means "no
+       value yet" and is not tickable. */
+    function getWeightErrorKg(w) {
+      if (w === '' || w === null || w === undefined) return 'Enter weight (0 for bodyweight)';
+      const n = Number(w);
+      if (!isFinite(n)) return 'Enter a number';
+      if (n < 0) return 'Weight must be 0 or more';
+      if (n > SET_MAX_WEIGHT_KG) return 'Max 1000 kg';
+      return '';
+    }
+
+    function getRepsError(r) {
+      if (r === '' || r === null || r === undefined) return 'Enter reps 1-1000';
+      const n = Number(r);
+      if (!isFinite(n)) return 'Enter a number';
+      if (Math.floor(n) !== n) return 'Whole reps only';
+      if (n < 1 || n > SET_MAX_REPS) return 'Reps 1-1000';
+      return '';
+    }
+
+    function isSetTickable(s) {
+      if (!s || typeof s !== 'object') return false;
+      return getWeightErrorKg(s.weight) === '' && getRepsError(s.reps) === '';
+    }
+
+    function setFieldError(exIdx, sIdx, field, msg) {
+      const key = exIdx + ':' + sIdx;
+      if (!setInputErrors[key]) setInputErrors[key] = { weight: '', reps: '' };
+      setInputErrors[key][field] = msg;
+    }
+
+    function clearSetError(exIdx, sIdx, field) {
+      const key = exIdx + ':' + sIdx;
+      if (!setInputErrors[key]) return;
+      if (field) {
+        setInputErrors[key][field] = '';
+        if (!setInputErrors[key].weight && !setInputErrors[key].reps) delete setInputErrors[key];
+      } else {
+        delete setInputErrors[key];
+      }
+    }
+
+    /* P2-03: per-exercise rest helpers. Missing/legacy values fall back to
+       the Profile default so old routines keep working. */
+    function getExerciseRestSec(exIdx) {
+      const ex = activeWorkout && activeWorkout.exercises && activeWorkout.exercises[exIdx];
+      if (ex && typeof ex.restSec === 'number' && isFinite(ex.restSec) && ex.restSec >= 0) return ex.restSec;
+      return state.defaultRest || 90;
+    }
+
+    function formatRestLabel(sec) {
+      if (sec === 0) return 'Rest Off';
+      const m = Math.floor(sec / 60);
+      const s = String(sec % 60).padStart(2, '0');
+      return 'Rest ' + m + ':' + s;
+    }
+
+    function setExerciseRest(exIdx, sec) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return;
+      const s = Number(sec);
+      if (!isFinite(s) || s < 0) return;
+      activeWorkout.exercises[exIdx].restSec = s;
+      // Routines remember each exercise's rest: write back to the source routine.
+      if (activeWorkout.routineId) {
+        const rt = state.routines.find(r => r.id === activeWorkout.routineId);
+        if (rt && Array.isArray(rt.exercises)) {
+          const exId = activeWorkout.exercises[exIdx].exId;
+          let target = rt.exercises[exIdx] && rt.exercises[exIdx].exId === exId ? rt.exercises[exIdx] : null;
+          if (!target) target = rt.exercises.find(e => e.exId === exId);
+          if (target) {
+            target.restSec = s;
+            saveState();
+          }
+        }
+      }
+      renderActiveWorkout();
+      saveActiveSession();
+    }
+
+    function openRestPicker(exIdx) {
+      restPickerTarget = exIdx;
+      const list = document.getElementById('restPickerList');
+      const cur = getExerciseRestSec(exIdx);
+      list.innerHTML = '';
+      REST_OPTIONS.forEach(sec => {
+        const b = document.createElement('button');
+        b.className = 'btn' + (sec === cur ? ' btn-primary' : '');
+        b.style.cssText = 'padding:8px 12px; font-size:14px;';
+        b.textContent = sec === 0 ? 'Off' : formatRestLabel(sec).replace('Rest ', '');
+        b.onclick = () => pickRestOption(sec);
+        list.appendChild(b);
+      });
+      document.getElementById('restPickerModal').classList.add('open');
+    }
+
+    function pickRestOption(sec) {
+      if (restPickerTarget === null || restPickerTarget === undefined) {
+        closeModal('restPickerModal');
+        return;
+      }
+      const idx = restPickerTarget;
+      restPickerTarget = null;
+      document.getElementById('restPickerModal').classList.remove('open');
+      setExerciseRest(idx, sec);
+    }
+
+    /* P2-01: count unticked sets for the finish review. */
+    function countUntickedSets() {
+      if (!activeWorkout) return 0;
+      let n = 0;
+      activeWorkout.exercises.forEach(ex => {
+        (ex.sets || []).forEach(s => { if (!s.done) n++; });
+      });
+      return n;
+    }
+
+    function countDoneValidSets() {
+      if (!activeWorkout) return 0;
+      let n = 0;
+      activeWorkout.exercises.forEach(ex => {
+        (ex.sets || []).forEach(s => { if (s.done && isSetTickable(s) && Number(s.reps) > 0) n++; });
+      });
+      return n;
+    }
+
     /* WORKOUT SESSION */
     function startEmptyWorkout() {
       const hasSaved = !!loadActiveSessionDraft();
@@ -1100,7 +1289,8 @@
         title: 'Workout',
         startTime: Date.now(),
         exercises: [],
-        finishing: false
+        finishing: false,
+        routineId: null
       };
       restDeadline = null;
       restRemaining = 0;
@@ -1125,6 +1315,7 @@
         title: rt.name,
         startTime: Date.now(),
         finishing: false,
+        routineId: rt.id,
         exercises: rt.exercises.map(item => {
           const sets = [];
           for (let i = 0; i < item.sets; i++) {
@@ -1136,13 +1327,19 @@
               done: false
             });
           }
-          return { exId: item.exId, sets };
+          // P2-03: inherit per-exercise rest; old routines without restSec use the Profile default.
+          const restSec = (typeof item.restSec === 'number' && isFinite(item.restSec) && item.restSec >= 0)
+            ? item.restSec : (state.defaultRest || 90);
+          return { exId: item.exId, sets, restSec };
         })
       };
       openWorkoutDrawer();
     }
 
     function openWorkoutDrawer() {
+      setInputErrors = {};
+      finishReviewPending = false;
+      restPickerTarget = null;
       document.getElementById('activeWorkoutTitle').value = activeWorkout.title;
       document.getElementById('activeWorkoutDrawer').classList.add('open');
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
@@ -1199,23 +1396,31 @@
           const prev = getPreviousSet(exItem.exId, sIdx);
           const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
           const label = s.type === 'N' ? normalCounter++ : s.type;
+          const key = exIdx + ':' + sIdx;
+          const err = setInputErrors[key] || { weight: '', reps: '' };
+          const wErr = err.weight || '';
+          const rErr = err.reps || '';
+          const rowMsg = wErr && rErr ? wErr + ' · ' + rErr : (wErr || rErr);
 
           setsHtml += `
             <div class="set-row ${s.done ? 'done' : ''}">
               <button class="set-type-btn set-type-${s.type}" onclick="cycleSetType(${exIdx}, ${sIdx})">${label}</button>
               <div class="prev-text">${prevStr}</div>
-              <input type="number" class="set-input" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
-              <input type="number" class="set-input" value="${s.reps}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
+              <input type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
+              <input type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
               <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
+              ${rowMsg ? `<div class="set-error">${rowMsg}</div>` : ''}
             </div>
           `;
         });
 
+        const restSec = getExerciseRestSec(exIdx);
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
               <div class="ex-name">${exInfo.name}</div>
               <span class="badge">${exInfo.muscle}</span>
+              <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
             </div>
             <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeActiveEx(${exIdx})">✕</button>
           </div>
@@ -1237,20 +1442,84 @@
     }
 
     function updateSetVal(exIdx, sIdx, field, val) {
-      if (field === 'weight') {
-        activeWorkout.exercises[exIdx].sets[sIdx][field] = fromInputWeight(val, state.unit);
-      } else {
-        activeWorkout.exercises[exIdx].sets[sIdx][field] = (val === '' || val === null) ? '' : (parseFloat(val) || 0);
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return;
+      // Clearing a field is allowed (empty = no value yet, not tickable).
+      if (val === '' || val === null || val === undefined) {
+        activeWorkout.exercises[exIdx].sets[sIdx][field] = '';
+        clearSetError(exIdx, sIdx, field);
+        renderActiveWorkout();
+        saveActiveSession();
+        return;
       }
+      if (field === 'weight') {
+        // P2-02: validate in display-unit terms before anything is saved.
+        const raw = parseFloat(val);
+        if (!isFinite(raw)) {
+          setFieldError(exIdx, sIdx, 'weight', 'Enter a number');
+          renderActiveWorkout();
+          saveActiveSession();
+          return;
+        }
+        const kg = fromInputWeight(val, state.unit);
+        const err = getWeightErrorKg(kg);
+        if (err) {
+          // Nothing invalid is saved to the set model.
+          setFieldError(exIdx, sIdx, 'weight', err);
+          renderActiveWorkout();
+          saveActiveSession();
+          return;
+        }
+        activeWorkout.exercises[exIdx].sets[sIdx][field] = kg;
+        clearSetError(exIdx, sIdx, 'weight');
+      } else {
+        const n = Number(val);
+        if (!isFinite(n)) {
+          setFieldError(exIdx, sIdx, 'reps', 'Enter a number');
+          renderActiveWorkout();
+          saveActiveSession();
+          return;
+        }
+        const err = getRepsError(n);
+        if (err) {
+          setFieldError(exIdx, sIdx, 'reps', err);
+          renderActiveWorkout();
+          saveActiveSession();
+          return;
+        }
+        activeWorkout.exercises[exIdx].sets[sIdx][field] = n;
+        clearSetError(exIdx, sIdx, 'reps');
+      }
+      renderActiveWorkout();
       saveActiveSession();
     }
 
     function toggleSetDone(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
       const s = activeWorkout.exercises[exIdx].sets[sIdx];
-      s.done = !s.done;
+      if (!s.done) {
+        // P2-02: an invalid set cannot be ticked.
+        const wErr = getWeightErrorKg(s.weight);
+        const rErr = getRepsError(s.reps);
+        if (wErr || rErr) {
+          if (wErr) setFieldError(exIdx, sIdx, 'weight', wErr);
+          if (rErr) setFieldError(exIdx, sIdx, 'reps', rErr);
+          renderActiveWorkout();
+          saveActiveSession();
+          return false;
+        }
+        s.done = true;
+        clearSetError(exIdx, sIdx);
+        renderActiveWorkout();
+        saveActiveSession();
+        // P2-03: ticking starts THAT exercise's rest; Off starts no timer.
+        const rest = getExerciseRestSec(exIdx);
+        if (rest > 0) startRestTimer(rest);
+        return true;
+      }
+      s.done = false;
       renderActiveWorkout();
       saveActiveSession();
-      if (s.done) startRestTimer(state.defaultRest || 90);
+      return true;
     }
 
     function addSetToActive(exIdx) {
@@ -1331,9 +1600,58 @@
        Epley est. 1RM are computed in kg so PR comparison is unit-independent. */
     function finishWorkout() {
       if (!activeWorkout || activeWorkout.finishing) return;
+      // P2-01: zero done sets keeps the existing message.
+      if (countDoneValidSets() === 0) {
+        alert('Complete at least one set (tap ✓) before finishing!');
+        return;
+      }
+      // P2-01: unticked sets (with values or empty) need an explicit choice.
+      const unticked = countUntickedSets();
+      if (unticked > 0) {
+        finishReviewPending = true;
+        document.getElementById('finishReviewText').textContent =
+          unticked + (unticked === 1 ? ' set is' : ' sets are') + ' not ticked. Tick them as done, drop them, or go back.';
+        document.getElementById('finishReviewModal').classList.add('open');
+        return;
+      }
+      doFinishSave();
+    }
+
+    // P2-01: review choices. Tick-all marks every VALID unticked set done and
+    // saves; invalid/empty rows stay unticked and are excluded from the save.
+    function finishReviewTickAll() {
+      if (!activeWorkout) return;
+      activeWorkout.exercises.forEach(ex => {
+        (ex.sets || []).forEach(s => {
+          if (!s.done && isSetTickable(s)) s.done = true;
+        });
+      });
+      setInputErrors = {};
+      finishReviewPending = false;
+      document.getElementById('finishReviewModal').classList.remove('open');
+      doFinishSave();
+    }
+
+    function finishReviewDrop() {
+      if (!activeWorkout) return;
+      finishReviewPending = false;
+      document.getElementById('finishReviewModal').classList.remove('open');
+      doFinishSave();
+    }
+
+    function finishReviewBack() {
+      finishReviewPending = false;
+      document.getElementById('finishReviewModal').classList.remove('open');
+      if (activeWorkout) saveActiveSession();
+    }
+
+    function doFinishSave() {
+      if (!activeWorkout || activeWorkout.finishing) return;
+      // P2-02: only valid ticked sets are saved; volume is clamped so it can
+      // never go negative (e.g. legacy -5 kg rows).
       const completedExercises = activeWorkout.exercises.map(ex => ({
         exId: ex.exId,
-        sets: ex.sets.filter(s => s.done && s.reps > 0)
+        sets: ex.sets.filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0)
       })).filter(ex => ex.sets.length > 0);
 
       if (completedExercises.length === 0) {
@@ -1352,9 +1670,11 @@
         let sessionBest1RM = 0;
 
         ex.sets.forEach(s => {
-          totalVolume += (Number(s.weight) || 0) * (Number(s.reps) || 0);
+          const w = Math.max(0, Number(s.weight) || 0);
+          const r = Math.max(0, Number(s.reps) || 0);
+          totalVolume += w * r;
           totalSets++;
-          const est1RM = (Number(s.weight) || 0) * (1 + (Number(s.reps) || 0) / 30);
+          const est1RM = w * (1 + r / 30);
           if (est1RM > sessionBest1RM) sessionBest1RM = est1RM;
         });
 
@@ -1369,7 +1689,7 @@
         title: document.getElementById('activeWorkoutTitle').value.trim() || 'Workout',
         date: Date.now(),
         durationSec,
-        totalVolume,
+        totalVolume: Math.max(0, Math.round(totalVolume * 100) / 100),
         totalSets,
         prCount,
         exercises: completedExercises
@@ -1394,6 +1714,9 @@
       activeWorkout = null;
       restDeadline = null;
       restRemaining = 0;
+      setInputErrors = {};
+      finishReviewPending = false;
+      restPickerTarget = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
       if (bar) bar.classList.remove('active');
@@ -1446,6 +1769,7 @@
         const prev = getPreviousSet(exId, 0);
         activeWorkout.exercises.push({
           exId,
+          restSec: (state.defaultRest || 90),
           sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
         });
         renderActiveWorkout();

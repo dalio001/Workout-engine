@@ -20,8 +20,7 @@ function baseBackup() {
   };
 }
 
-function workoutBackup() {
-  const d1 = Date.UTC(2026, 8, 1, 10, 0, 0);
+function workoutBackup() {  const d1 = Date.UTC(2026, 8, 1, 10, 0, 0);
   const d2 = Date.UTC(2026, 9, 10, 18, 30, 0);
   const b = baseBackup();
   b.exercises.push({ id: 'ex7', name: 'Squat (Barbell)', muscle: 'Legs' });
@@ -31,6 +30,13 @@ function workoutBackup() {
     { id: 'wk2', title: 'B', date: d1, durationSec: 1800, totalVolume: 1500, totalSets: 3, exercises: [{ exId: 'ex7', sets: [{ weight: 120, reps: 5 }] }] },
   ];
   return { b, d1, d2 };
+}
+
+// P2-01 finish review: unticked placeholder sets open a modal before saving;
+// existing flows confirm "Drop them" so only ticked sets are saved.
+function finishWithDrop(app) {
+  app.api.finishWorkout();
+  if (app.api.finishReviewPending) app.api.finishReviewDrop();
 }
 
 function withBadSet(mut) {
@@ -115,7 +121,7 @@ describe('restore + undo', () => {
     app.api.updateSetVal(0, 0, 'weight', '80');
     app.api.updateSetVal(0, 0, 'reps', '5');
     app.api.toggleSetDone(0, 0);
-    app.api.finishWorkout();
+    finishWithDrop(app);
     const rawBefore = store.get(STATE_KEY);
     assert.ok(rawBefore, 'current state persisted before restore');
 

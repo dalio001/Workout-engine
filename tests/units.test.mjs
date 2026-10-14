@@ -5,6 +5,13 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp, loadIndexHtml } from './harness.mjs';
 
+// P2-01 finish review: unticked placeholder sets open a modal before saving;
+// existing flows confirm "Drop them" so only ticked sets are saved.
+function finishWithDrop(app) {
+  app.api.finishWorkout();
+  if (app.api.finishReviewPending) app.api.finishReviewDrop();
+}
+
 describe('units (canonical kg)', () => {
   it('100 kg shows as 220.5 lb', () => {
     const app = createApp();
@@ -22,7 +29,7 @@ describe('units (canonical kg)', () => {
     app.api.updateSetVal(0, 0, 'weight', '100');
     app.api.updateSetVal(0, 0, 'reps', '5');
     app.api.toggleSetDone(0, 0);
-    app.api.finishWorkout();
+    finishWithDrop(app);
     const before = JSON.stringify(app.api.state.history);
 
     for (let i = 0; i < 10; i++) app.api.toggleUnit();
@@ -40,7 +47,7 @@ describe('units (canonical kg)', () => {
     app.api.updateSetVal(0, 0, 'reps', '10');
     app.api.toggleSetDone(0, 0);
     assert.equal(app.api.activeWorkout.exercises[0].sets[0].weight, 45.36, 'stored in kg');
-    app.api.finishWorkout();
+    finishWithDrop(app);
 
     const vol = app.api.state.history[0].totalVolume;
     assert.ok(Math.abs(vol - 453.6) < 0.05, `volume in kg (~453.6), got ${vol}`);

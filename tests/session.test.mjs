@@ -16,6 +16,13 @@ function startAndTickTwo(app) {
   app.api.toggleSetDone(0, 1);
 }
 
+// P2-01 finish review: unticked placeholder sets open a modal before saving;
+// existing flows confirm "Drop them" so only ticked sets are saved.
+function finishWithDrop(app) {
+  app.api.finishWorkout();
+  if (app.api.finishReviewPending) app.api.finishReviewDrop();
+}
+
 describe('live workout survives reload', () => {
   it('resume draft keeps both ticked sets and the rest end time', () => {
     const store = new Map();
@@ -48,7 +55,7 @@ describe('finish and discard', () => {
     startAndTickTwo(app);
     assert.ok(store.has(DRAFT_KEY), 'draft exists before finish');
 
-    app.api.finishWorkout();
+    finishWithDrop(app);
     app.api.finishWorkout(); // double-tap / double-submit guard
 
     assert.equal(app.api.state.history.length, 1, 'exactly one history entry');
