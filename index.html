@@ -421,6 +421,16 @@
       background: rgba(59, 130, 246, 0.15);
       color: var(--primary);
     }
+    /* P2-06 picker: search + chips stick to the top of the modal while the
+       exercise list scrolls underneath. */
+    .picker-sticky {
+      position: sticky;
+      top: -14px;
+      margin: -14px -16px 0;
+      padding: 14px 16px 4px;
+      background: var(--bg-card);
+      z-index: 2;
+    }
   </style>
 </head>
 <body>
@@ -596,16 +606,18 @@
         <span>Select Exercise</span>
         <button class="btn" onclick="closeModal('exPickerModal')">✕</button>
       </div>
-      <div class="modal-body">
-        <input type="text" id="pickerSearch" class="input-field" placeholder="Search exercise..." oninput="renderPickerList()">
-        <div class="chips" id="pickerMuscleChips"></div>
-        <div class="chips" id="pickerEquipChips"></div>
-        <div id="pickerRecent"></div>
-        <div id="pickerList"></div>
-        <div id="pickerFooter" style="display:flex; gap:8px; margin-top:12px;">
-          <button class="btn" style="flex:1; min-height:48px;" onclick="clearPickerSelected()">Clear</button>
-          <button class="btn btn-primary" id="pickerAddBtn" style="flex:2; min-height:48px;" onclick="addPickerSelected()">Add (0)</button>
+      <div class="modal-body" id="pickerBody">
+        <div class="picker-sticky">
+          <input type="text" id="pickerSearch" class="input-field" placeholder="Search exercise..." oninput="renderPickerList()">
+          <div class="chips" id="pickerMuscleChips"></div>
+          <div class="chips" id="pickerEquipChips"></div>
         </div>
+        <div id="pickerRecent"></div>
+        <div id="pickerList" style="padding-bottom:8px;"></div>
+      </div>
+      <div id="pickerFooter" style="display:none; gap:8px; padding:12px 16px; border-top:1px solid var(--border);">
+        <button class="btn" style="flex:1; min-height:52px;" onclick="clearPickerSelected()">Clear</button>
+        <button class="btn btn-primary" id="pickerAddBtn" style="flex:2; min-height:52px;" onclick="addPickerSelected()">Add (0)</button>
       </div>
     </div>
   </div>
@@ -2888,8 +2900,11 @@
       }
       const list = document.getElementById('pickerList');
       list.innerHTML = (secs.recent.length ? '<h3>All exercises</h3>' : '') + secs.list.map(pickerRowHtml).join('');
+      /* P2-06 sticky footer: a flex sibling of the scrolling body, so it is
+         always visible; shown only when at least one exercise is ticked
+         (never in single-tap replace mode). Nothing overlaps the list. */
       const footer = document.getElementById('pickerFooter');
-      if (footer) footer.style.display = (pickerTarget === 'replace') ? 'none' : 'flex';
+      if (footer) footer.style.display = (pickerTarget === 'replace' || countPickerSelected() === 0) ? 'none' : 'flex';
       const addBtn = document.getElementById('pickerAddBtn');
       if (addBtn) addBtn.innerText = 'Add (' + countPickerSelected() + ')';
     }

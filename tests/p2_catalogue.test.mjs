@@ -8,7 +8,7 @@
 // 8. Restore accepts backups with and without the new fields.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createApp, STATE_KEY } from './harness.mjs';
+import { createApp, STATE_KEY, loadIndexHtml } from './harness.mjs';
 
 function plain(v) {
   return JSON.parse(JSON.stringify(v));
@@ -227,6 +227,39 @@ describe('P2-06 escaping', () => {
     assert.ok(!detail.includes('<img src=x'), 'detail has no raw injection');
     assert.ok(detail.includes('&lt;img'), 'detail shows escaped name');
     assert.ok(detail.includes('Weight × reps'), 'type shown as a small label');
+  });
+});
+
+describe('P2-06 sticky Add bar', () => {
+  it('add-bar-is-a-fixed-footer-outside-the-scrolling-list', () => {
+    const html = loadIndexHtml().replace(/\r\n/g, '\n');
+    assert.ok(
+      html.includes('<div id="pickerList" style="padding-bottom:8px;"></div>\n      </div>\n      <div id="pickerFooter"'),
+      'footer is a sibling after the scrolling modal-body, not inside the list',
+    );
+    assert.ok(html.includes('.picker-sticky {'), 'sticky header rule exists');
+    assert.ok(html.includes('position: sticky;'), 'search+chips stick while the list scrolls');
+    assert.ok(html.includes('min-height:52px;'), 'thumb-sized bar buttons');
+  });
+
+  it('add-bar-shows-only-when-ticked', () => {
+    const app = createApp();
+    app.api.openExercisePicker('workout');
+    assert.equal(app.el('pickerFooter').style.display, 'none', 'hidden with 0 ticked');
+    app.api.togglePickerSelect('ex1');
+    app.api.togglePickerSelect('ex7');
+    assert.equal(app.el('pickerFooter').style.display, 'flex', 'visible once ticked');
+    assert.ok(app.el('pickerAddBtn').innerText.includes('(2)'), 'Add (2) counts ticks');
+    app.api.clearPickerSelected();
+    assert.equal(app.el('pickerFooter').style.display, 'none', 'hidden again after clear');
+  });
+
+  it('add-bar-stays-hidden-in-replace-mode', () => {
+    const app = createApp();
+    app.api.startEmptyWorkout();
+    app.api.addExerciseToWorkout('ex1');
+    app.api.openReplacePicker(0);
+    assert.equal(app.el('pickerFooter').style.display, 'none', 'no multi-add bar when replacing');
   });
 });
 
