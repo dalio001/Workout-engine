@@ -2,6 +2,14 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — Feature-level video handoff and second review
+
+- Watched V2 through full captions and 48 overview frames, then inspected 44 focused timestamps; checked 20 additional V1 timestamps, including the resume/replace prompt. Recorded source metadata and feature-level scene links in the video index.
+- Added per-task/sub-feature references across all eight pillars, with direct timestamp links, ranges, inspection notes and explicit limits for settings, narrated features and behavior not demonstrated. Updated AGENTS.md and workflow so the next agent reads only the relevant clips first.
+- Added six focused unimplemented tasks within existing pillars: previous-value scope, inline timers/superset advancement, personal custom demos, keep-awake, separate sounds and optional strength comparison. Personal-first order 0 → 2 → 1 → 5 remains; public/community/billing/growth scope stays deferred.
+- Verified 76 task rows against 76 reference sections, local links/table columns and 195 timestamp URLs/ranges; documentation checks passed and no app/README diff was present.
+- Prepared the user-authorized documentation merge; no app source/README changes, new dependencies, implemented features or redistributed video media.
+
 ## 2026-10-14 — Explicit owner preferences in the agent contract
 
 - Added a durable AGENTS.md preference section: personal use first; default next-task order 0 → 2 → 1 → 5; basic protections/settings from 4/6; community, coaching, billing and public growth deferred.

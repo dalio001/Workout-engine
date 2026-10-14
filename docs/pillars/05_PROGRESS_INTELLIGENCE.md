@@ -32,16 +32,17 @@ Date-range selector, accessible charts/tables, record detail, calendar, measurem
 
 ## What is left to do `[ ]`
 
-| ID | Priority / phase | Task and dependencies | Acceptance criteria |
-| --- | --- | --- | --- |
-| P5-01 | P0 / A–B | Metric dictionary and versioned fixtures; P2-02 | Define valid/working sets, warm-up/drop/failure treatment, canonical volume, per-hand conventions, PR baselines/ties and estimated 1RM eligibility; duration/distance/bodyweight handled separately; high-rep estimates labeled/limited |
-| P5-02 | P1 / C | Personal/exercise history and records; P0-07 | Heaviest load, rep-based records, estimated 1RM and set/session volume differentiated; complete timeline and date ranges; corrections/deletes rebuild deterministically; input/display units remain meaningful |
-| P5-03 | P1 / C | Calendar, consistency and muscle workload | User timezone/week boundaries explicit; prescribed versus completed work separate; primary/secondary muscle attribution documented; no double-counted totals or claims that set distribution proves recovery |
-| P5-04 | P2 / C–D | Private measurements/photos and weekly/monthly reports; P4 privacy | Optional entries with unit/time context; private media access; missing-data states; report values trace to source sets; no fat-loss/health-outcome inference beyond entered data |
-| P5-05 | P2 / E | Reviewed progression and constraint rules; P2-09 | Next target cites relevant history/program rule; respect equipment increments and user constraints; no history → ask/offer conservative manual baseline; accept/override/undo; original program recoverable; expert-reviewed cases |
-| P5-06 | P2 / E | Conversational analysis as optional interface | Reads authorized structured history; retrieves only permitted records; shows evidence dates/units; generated plan schema validated; proposal preview before application; no invented workout facts or silent writes |
-| P5-07 | P0 / before guidance release | Evaluation, rollout and operating costs | Golden cases for missing/conflicting data, unit changes, plateaus, fatigue signals, substitutions and adversarial notes; unsafe/out-of-scope advice rejected; no unauthorized writes; user control, latency/cost limits and rollback flag |
-| P5-08 | P2 / E–F | Guidance-value experiment with P7 | Compare transparent rules against manual baseline; helpfulness/acceptance/override and retention measured; report sample size and confounding; don't attribute training outcomes causally without suitable study |
+| ID | Priority / phase | Task and dependencies | Acceptance criteria | Feature references |
+| --- | --- | --- | --- | --- |
+| P5-01 | P0 / A–B | Metric dictionary and versioned fixtures; P2-02 | Define valid/working sets, warm-up/drop/failure treatment, canonical volume, per-hand conventions, PR baselines/ties and estimated 1RM eligibility; duration/distance/bodyweight handled separately; high-rep estimates labeled/limited | [Clips / evidence](#p5-01-reference) |
+| P5-02 | P1 / C | Personal/exercise history and records; P0-07 | Heaviest load, rep-based records, estimated 1RM and set/session volume differentiated; complete timeline and date ranges; corrections/deletes rebuild deterministically; input/display units remain meaningful | [Clips / evidence](#p5-02-reference) |
+| P5-03 | P1 / C | Calendar, consistency and muscle workload | User timezone/week boundaries explicit; prescribed versus completed work separate; primary/secondary muscle attribution documented; no double-counted totals or claims that set distribution proves recovery | [Clips / evidence](#p5-03-reference) |
+| P5-04 | P2 / C–D | Private measurements/photos and weekly/monthly reports; P4 privacy | Optional entries with unit/time context; private media access; missing-data states; report values trace to source sets; no fat-loss/health-outcome inference beyond entered data | [Clips / evidence](#p5-04-reference) |
+| P5-05 | P2 / E | Reviewed progression and constraint rules; P2-09 | Next target cites relevant history/program rule; respect equipment increments and user constraints; no history → ask/offer conservative manual baseline; accept/override/undo; original program recoverable; expert-reviewed cases | [Clips / evidence](#p5-05-reference) |
+| P5-06 | P2 / E | Conversational analysis as optional interface | Reads authorized structured history; retrieves only permitted records; shows evidence dates/units; generated plan schema validated; proposal preview before application; no invented workout facts or silent writes | [Clips / evidence](#p5-06-reference) |
+| P5-07 | P0 / before guidance release | Evaluation, rollout and operating costs | Golden cases for missing/conflicting data, unit changes, plateaus, fatigue signals, substitutions and adversarial notes; unsafe/out-of-scope advice rejected; no unauthorized writes; user control, latency/cost limits and rollback flag | [Clips / evidence](#p5-07-reference) |
+| P5-08 | P2 / E–F | Guidance-value experiment with P7 | Compare transparent rules against manual baseline; helpfulness/acceptance/override and retention measured; report sample size and confounding; don't attribute training outcomes causally without suitable study | [Clips / evidence](#p5-08-reference) |
+| P5-09 | P3 / optional, deferred for personal use | Strength-level comparison discovery; not a personal-use requirement | Only if owner requests it; obtain a defensible comparison dataset and methodology, disclose grouping/uncertainty, protect private inputs, support opt-out; do not fabricate population ranks from one user's history | [Clips / evidence](#p5-09-reference) |
 
 ### Recommendation contract
 
@@ -55,11 +56,65 @@ Start with reviewed deterministic progression rules and explain their conditions
 
 Hevy already describes adaptive programming and conversational training analysis. Our hypothesis is a better combined flow for migrating history, understanding a target and adapting it at the gym. Validate that preference before expanding hosted AI spend. [Hevy Trainer](https://www.hevyapp.com/features/workout-plan-generator/), [Hevy on ChatGPT](https://www.hevyapp.com/features/hevy-chatgpt/).
 
+## Feature reference map
+
+Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md). A visible metric label or chart does not establish its formula, eligibility or causal training meaning.
+
+### P5-01 reference
+
+- **Metric/record categories — Shown:** [V2 1:04–1:28](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=64s) and [V2 2:52–3:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=172s); inspect heaviest load, 1RM, set/session volume and rep records.
+- **Formula, warm-up/assistance/dumbbell policy, ties and correction recalculation — Not demonstrated.** Use the [prototype formula audit](../research/HEVY_AUDIT.md) and our versioned dictionary, not a guessed calculation from UI labels.
+
+### P5-02 reference
+
+- **Routine volume/reps/duration chart — Shown:** [V1 2:51–3:10](https://www.youtube.com/watch?v=8ESngufwx6g&t=171s).
+- **Exercise chart/records — Shown:** [V2 2:52–3:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=172s).
+- **Custom-exercise chart/records — Shown:** [V2 10:29–10:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=629s).
+- **Live-PR notification/audio — Setting only:** [V2 4:40–4:48](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=280s) and [V2 5:35–6:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=335s); no actual record alert. Complete history/correction rules require our tests.
+
+### P5-03 reference
+
+- **Muscle split and saved-session workload — Shown:** [V2 2:35–2:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=155s).
+- **Profile duration/volume/reps chart — Shown; Calendar button only:** [V1 3:38–3:53](https://www.youtube.com/watch?v=8ESngufwx6g&t=218s).
+- **Week-start choice — Shown setting:** [V2 4:51–5:06](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=291s).
+- **Calendar interior, streak rules, timezone boundaries and muscle attribution formulas — Not demonstrated.** [Official progress description](https://www.hevyapp.com/features/gym-progress/) supplies feature context; define our semantics separately.
+
+### P5-04 reference
+
+- **Measures entry — Button only:** [V1 3:38–3:53](https://www.youtube.com/watch?v=8ESngufwx6g&t=218s).
+- **Body-measurement units — Shown settings:** [V2 3:34–3:42](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=214s).
+- **Workout photo — Shown:** [V2 9:06–9:20](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=546s); this is a published workout image, not proof of a private progress-photo journal.
+- **Measurement editor, private progress-photo history and periodic report generation — Not demonstrated.** Use [official progress context](https://www.hevyapp.com/features/gym-progress/) and our private-data/report contract. Premium slides are marketing, not a demonstrated measurement workflow.
+
+### P5-05 reference
+
+- **Adaptive AI programs — Narrated only:** [V2 11:45–12:00](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=705s).
+- **Next-target rationale, constraint adaptation, acceptance/undo and actual progression — Not demonstrated.** Use [official Trainer description](https://www.hevyapp.com/features/workout-plan-generator/) and our reviewed rule/evaluation specifications; optional later personal guidance.
+
+### P5-06 reference
+
+- **ChatGPT connection — Entry point/narration:** [V2 3:54–4:08](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=234s).
+- **Conversation, history retrieval, chart generation and plan import — Not demonstrated.** Use [official ChatGPT product context](https://www.hevyapp.com/features/hevy-chatgpt/) and our authorized-read/proposal contract.
+
+### P5-07 reference
+
+- **Evaluation cases, safeguards, operating-cost limits and rollout — Not demonstrated in V1/V2.** Our engineering requirements; see P5-07 and [master plan](../MASTER_PLAN.md). A reviewer describing AI is not an evaluation result.
+
+### P5-08 reference
+
+- **Controlled guidance-value/retention study — Not demonstrated in V1/V2.** Proposed research in P5-08/P7. Neither subjective review validates our recommendation outcomes.
+
+### P5-09 reference
+
+- **Strength Level and explanation — Shown:** [V2 1:04–1:28](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=64s); compare-category labels and grouping explanation.
+- **Comparison dataset/representativeness/methodology — Not demonstrated.** The reviewer's dislike is an opinion, not the owner's preference. Keep this feature deferred unless requested; personal history alone cannot yield a defensible population rank.
+
 ## Video references & Assets
 
-- [Supplied review](https://www.youtube.com/watch?v=8ESngufwx6g): routine charts at 2:51–3:10; profile duration/volume/reps, measures and calendar at 3:34–4:04.
+- [V1 review](https://www.youtube.com/watch?v=8ESngufwx6g); use the task-specific timestamp links above. Broad initial-review ranges are superseded by the verified feature index.
 - [Exercise-performance reference](https://www.hevyapp.com/features/exercise-performance/), [progress reference](https://www.hevyapp.com/features/gym-progress/).
 - [../research/HEVY_AUDIT.md](../research/HEVY_AUDIT.md).
+- [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw) and [video index](../research/VIDEO_REFERENCE_INDEX.md); per-task links and evidence limits above.
 
 ## Next Immediate Action
 

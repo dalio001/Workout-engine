@@ -37,17 +37,17 @@ Recovery/resume prompt, save/sync indicator, import preview, conflict-resolution
 
 ## What is left to do `[ ]`
 
-| ID | Priority / phase | Task and dependencies | Acceptance criteria |
-| --- | --- | --- | --- |
-| P0-01 | P0 / personal first; public A later | Personal architecture decision record; retain/harden the web app by default, compare native only if device needs justify it; consult P1/P4 | Target phone/browser, durable local storage, domain contracts, migration/rollback and offline strategy documented; backend/native/public options explicitly optional; no vendor provisioned merely to decide |
-| P0-02 | P0 / B | Durable session journal and recovery; depends on P0-01/P2-02 | Every acknowledged set edit is recoverable after reload/process termination; storage failure is visible; no misleading saved state; original session and rest deadline restored without duplicate sets |
-| P0-03 | P0 / B | Versioned legacy migration and validated backup/import; depends on P2-02/P5-01/P4-01 | Preserve original backup; preview counts, mappings, units and errors; invalid file changes nothing; intentional empty arrays remain empty; rollback available; unresolved legacy units explicitly reviewed |
-| P0-04 | P1 / C | Optional identity and local-to-account ownership | Guest can train; linking never discards local data; account switch/sign-out isolates private history; duplicate import/linking is safe; recovery and deletion workflows documented with P4/P6 |
-| P0-05 | P1 / C | Local mutation queue and cross-device sync; depends on P0-02/03/04 | Stable operation IDs, revisions, retry/backoff, acknowledgements and tombstones; repeated finish produces one session; conflicting live sessions require explicit selection; failures do not block local logging |
-| P0-06 | P0 / B–C | Establish engineering tooling and delivery | Actual lint/typecheck/test/build commands recorded in AGENTS.md; CI checks domain fixtures, migration, offline recovery, units, finalization and authorization; staging/rollback and error monitoring defined |
-| P0-07 | P1 / C | Historical snapshots and derived-data rebuild | Routine/exercise renames preserve historical meaning; history edits/deletes deterministically rebuild records and charts; policy versions traceable through P5 |
-| P0-08 | P2 / D–F | Media/storage operations and scale budget; consult P3/P4/P6 | Private object access, bounded uploads, deletion lifecycle, backup restore drill and operational cost thresholds; realistic load scenario and measured capacity before scale claims |
-| P0-09 | P2 / C–F | Web planning client and public integration contracts | Uses the same entity and unit contracts; no independent source of truth; API scopes/rate limits/export rules explicit; web capability gaps documented |
+| ID | Priority / phase | Task and dependencies | Acceptance criteria | Feature references |
+| --- | --- | --- | --- | --- |
+| P0-01 | P0 / personal first; public A later | Personal architecture decision record; retain/harden the web app by default, compare native only if device needs justify it; consult P1/P4 | Target phone/browser, durable local storage, domain contracts, migration/rollback and offline strategy documented; backend/native/public options explicitly optional; no vendor provisioned merely to decide | [Clips / evidence](#p0-01-reference) |
+| P0-02 | P0 / B | Durable session journal and recovery; depends on P0-01/P2-02 | Every acknowledged set edit is recoverable after reload/process termination; storage failure is visible; no misleading saved state; original session and rest deadline restored without duplicate sets | [Clips / evidence](#p0-02-reference) |
+| P0-03 | P0 / B | Versioned legacy migration and validated backup/import; depends on P2-02/P5-01/P4-01 | Preserve original backup; preview counts, mappings, units and errors; invalid file changes nothing; intentional empty arrays remain empty; rollback available; unresolved legacy units explicitly reviewed | [Clips / evidence](#p0-03-reference) |
+| P0-04 | P1 / C | Optional identity and local-to-account ownership | Guest can train; linking never discards local data; account switch/sign-out isolates private history; duplicate import/linking is safe; recovery and deletion workflows documented with P4/P6 | [Clips / evidence](#p0-04-reference) |
+| P0-05 | P1 / C | Local mutation queue and cross-device sync; depends on P0-02/03/04 | Stable operation IDs, revisions, retry/backoff, acknowledgements and tombstones; repeated finish produces one session; conflicting live sessions require explicit selection; failures do not block local logging | [Clips / evidence](#p0-05-reference) |
+| P0-06 | P0 / B–C | Establish engineering tooling and delivery | Actual lint/typecheck/test/build commands recorded in AGENTS.md; CI checks domain fixtures, migration, offline recovery, units, finalization and authorization; staging/rollback and error monitoring defined | [Clips / evidence](#p0-06-reference) |
+| P0-07 | P1 / C | Historical snapshots and derived-data rebuild | Routine/exercise renames preserve historical meaning; history edits/deletes deterministically rebuild records and charts; policy versions traceable through P5 | [Clips / evidence](#p0-07-reference) |
+| P0-08 | P2 / D–F | Media/storage operations and scale budget; consult P3/P4/P6 | Private object access, bounded uploads, deletion lifecycle, backup restore drill and operational cost thresholds; realistic load scenario and measured capacity before scale claims | [Clips / evidence](#p0-08-reference) |
+| P0-09 | P2 / C–F | Web planning client and public integration contracts | Uses the same entity and unit contracts; no independent source of truth; API scopes/rate limits/export rules explicit; web capability gaps documented | [Clips / evidence](#p0-09-reference) |
 
 ### Proposed core contract
 
@@ -64,12 +64,61 @@ Legacy data has only a global unit preference. Past mixed-unit entries cannot be
 
 Reload after an edit; terminate/reopen; storage quota/error; multiple tabs; finish double-tap; repeated network delivery; offline sign-in/linking; account switching; device conflict; migrated empty library; malformed file; restore rollback; history correction across timezones. These are planned tests, not tests already passed.
 
+## Feature reference map
+
+V1/V2 and evidence labels are defined in the [video index](../research/VIDEO_REFERENCE_INDEX.md). Only the named visible behaviors are evidenced; storage and backend guarantees require our acceptance tests.
+
+### P0-01 reference
+
+- **Storage/platform choice — Not demonstrated in V1/V2.** Use the [repository audit](../research/HEVY_AUDIT.md) and [personal architecture direction](../MASTER_PLAN.md). These are design decisions; neither video reveals Hevy's internal architecture.
+
+### P0-02 reference
+
+- **Resume/discard affordance — Shown:** [V1 0:15–0:43](https://www.youtube.com/watch?v=8ESngufwx6g&t=15s).
+- **Existing-session choice — Shown:** [V1 2:12–2:18](https://www.youtube.com/watch?v=8ESngufwx6g&t=132s); inspect resume/start-new/cancel at 2:15.
+- **Persistence after interruption — Not demonstrated.** Our durability requirement comes from the [confirmed draft-loss audit](../research/HEVY_AUDIT.md), not the reference UI.
+
+### P0-03 reference
+
+- **Units screen — Shown:** [V2 3:34–3:42](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=214s); weight/distance/body-measurement units.
+- **Export/import menu — Entry point only:** [V2 3:51–3:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=231s).
+- **Import preview, transactional validation, rollback, empty-array migration and legacy-unit recovery — Not demonstrated.** Use the [import/unit audit](../research/HEVY_AUDIT.md) and P0-03 criteria.
+
+### P0-04 reference
+
+- **Profile fields — Shown:** [V2 6:18–6:35](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=378s).
+- **Sign-in, guest linking, account switching/recovery/deletion — Not demonstrated in V1/V2.** Use P0-04/P4-02 contracts; optional for personal use.
+
+### P0-05 reference
+
+- **Queued sync, retries, idempotency, tombstones and conflict resolution — Not demonstrated in V1/V2.** Use the [master data contract](../MASTER_PLAN.md) and P0-05 scenarios. Cross-device product context: [official overview](https://www.hevyapp.com/); no implementation behavior is established by either video.
+
+### P0-06 reference
+
+- **Tooling, CI and recovery tests — Not demonstrated in V1/V2.** Engineering work derived from the [missing-tooling audit](../research/HEVY_AUDIT.md) and [AGENTS.md](../../AGENTS.md); not a competitor UI feature.
+
+### P0-07 reference
+
+- **Historical chart/records presentation — Shown:** [V2 2:52–3:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=172s).
+- **Snapshot/versioning and deterministic rebuild after correction — Not demonstrated.** Use P0-07/P5-01 specifications; the video does not reveal recalculation internals.
+
+### P0-08 reference
+
+- **Workout media entry — Entry point only:** [V1 2:40–2:49](https://www.youtube.com/watch?v=8ESngufwx6g&t=160s).
+- **Existing personal custom demo — Shown:** [V2 9:58–10:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=598s).
+- **Object storage, access, deletion, backups and load/cost limits — Not demonstrated.** Specify through P0-08/P4-05; media mechanism is not established by a playback screen.
+
+### P0-09 reference
+
+- **Desktop planner and public API contracts — Not demonstrated in V1/V2.** Product context: [official desktop overview](https://www.hevyapp.com/). Use P0-09's shared-data contract rather than inventing a video reference.
+
 ## Video references & Assets
 
-- [Supplied review](https://www.youtube.com/watch?v=8ESngufwx6g): resume bar at roughly 0:15–0:43; save/history at 2:39–3:10.
+- [V1 review](https://www.youtube.com/watch?v=8ESngufwx6g); use the task-specific timestamp links above. Broad initial-review ranges are superseded by the verified feature index.
 - [Hevy desktop/watch overview](https://www.hevyapp.com/): reference for cross-device continuity, not an API specification.
 - [Expo SQLite](https://docs.expo.dev/versions/latest/sdk/sqlite/): candidate durable native storage; sync and notification behavior require separate decisions.
 - Audit: [../research/HEVY_AUDIT.md](../research/HEVY_AUDIT.md).
+- [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw); per-feature links and limitations above. Complete scene ledger: [video index](../research/VIDEO_REFERENCE_INDEX.md).
 
 ## Next Immediate Action
 

@@ -33,17 +33,18 @@ Import error/preview; audience selector; permission rationale; consent settings;
 
 ## What is left to do `[ ]`
 
-| ID | Priority / phase | Task and dependencies | Acceptance criteria |
-| --- | --- | --- | --- |
-| P4-01 | P0 / B | Safe rendering and validation; P0 migration/P2 types | Names/notes rendered as data; strict import schemas, bounds and ID/reference checks before mutation; rejected input leaves original intact; URI/content boundaries documented; meaningful regression fixtures |
-| P4-02 | P0 / C–D | Privacy/access model, account and social threat review | Account isolation and private/public/followers/group/coach audiences tested at server/object boundaries; revocation/deletion propagated; default-private measurements/photos; block/report policies enforced beyond UI |
-| P4-03 | P1 / B–C | Timer/notification capability matrix | Document foreground, background, locked-screen, killed-process and offline behavior for supported platforms; deadlines remain correct; notification permission refusal does not break logging; no promise of guaranteed background web audio |
-| P4-04 | P1 / C | Data governance and launch review; P6 account controls | Data/processor inventory, minimal permissions, retention/export/deletion procedures, launch-market privacy review and incident owner; analytics excludes raw notes/photos/measurements; no compliance claim without review |
-| P4-05 | P2 / D | Media permissions and moderation operations; P3 | Owned/licensed exercise assets; private upload/download authorization; size/type checks; sharing strips unintended metadata; deletion/revocation verified; operational report response owner |
-| P4-06 | P3 / F | Apple Health / Health Connect pilot | Explicit scopes/consent, availability matrix, disconnect/delete semantics and correct unit mapping; deduplicate source sessions; no inferred medical conclusions; denied permissions handled gracefully |
-| P4-07 | P3 / F | Apple Watch then WearOS, ordered by user demand | Versioned offline session/routine payloads; phone/watch concurrent edits and finalization reconcile to one logical workout; locks/permissions/background timing tested on real devices; staged release and rollback |
-| P4-08 | P3 / F | Widgets/live activities and optional external adapters | Capability-specific platform review; minimum OAuth scopes, token handling, revocation, rate limits, retries and deduplication; integrations do not become prerequisites to logging |
-| P4-09 | P1 / C–F | Release trust review and recovery drills | Access/export/deletion/restore regressions pass; secret/dependency review appropriate to implemented stack; incident triage and user communication procedure; monitor failures without logging sensitive content |
+| ID | Priority / phase | Task and dependencies | Acceptance criteria | Feature references |
+| --- | --- | --- | --- | --- |
+| P4-01 | P0 / B | Safe rendering and validation; P0 migration/P2 types | Names/notes rendered as data; strict import schemas, bounds and ID/reference checks before mutation; rejected input leaves original intact; URI/content boundaries documented; meaningful regression fixtures | [Clips / evidence](#p4-01-reference) |
+| P4-02 | P0 / C–D | Privacy/access model, account and social threat review | Account isolation and private/public/followers/group/coach audiences tested at server/object boundaries; revocation/deletion propagated; default-private measurements/photos; block/report policies enforced beyond UI | [Clips / evidence](#p4-02-reference) |
+| P4-03 | P1 / B–C | Timer/notification capability matrix | Document foreground, background, locked-screen, killed-process and offline behavior for supported platforms; deadlines remain correct; notification permission refusal does not break logging; no promise of guaranteed background web audio | [Clips / evidence](#p4-03-reference) |
+| P4-04 | P1 / C | Data governance and launch review; P6 account controls | Data/processor inventory, minimal permissions, retention/export/deletion procedures, launch-market privacy review and incident owner; analytics excludes raw notes/photos/measurements; no compliance claim without review | [Clips / evidence](#p4-04-reference) |
+| P4-05 | P2 / D | Media permissions and moderation operations; P3 | Owned/licensed exercise assets; private upload/download authorization; size/type checks; sharing strips unintended metadata; deletion/revocation verified; operational report response owner | [Clips / evidence](#p4-05-reference) |
+| P4-06 | P3 / F | Apple Health / Health Connect pilot | Explicit scopes/consent, availability matrix, disconnect/delete semantics and correct unit mapping; deduplicate source sessions; no inferred medical conclusions; denied permissions handled gracefully | [Clips / evidence](#p4-06-reference) |
+| P4-07 | P3 / F | Apple Watch then WearOS, ordered by user demand | Versioned offline session/routine payloads; phone/watch concurrent edits and finalization reconcile to one logical workout; locks/permissions/background timing tested on real devices; staged release and rollback | [Clips / evidence](#p4-07-reference) |
+| P4-08 | P3 / F | Widgets/live activities and optional external adapters | Capability-specific platform review; minimum OAuth scopes, token handling, revocation, rate limits, retries and deduplication; integrations do not become prerequisites to logging | [Clips / evidence](#p4-08-reference) |
+| P4-09 | P1 / C–F | Release trust review and recovery drills | Access/export/deletion/restore regressions pass; secret/dependency review appropriate to implemented stack; incident triage and user communication procedure; monitor failures without logging sensitive content | [Clips / evidence](#p4-09-reference) |
+| P4-10 | P1 / personal optional | Keep screen awake during an active workout; preference in P6-01, UI in P1-02 | Explicit opt-in; use supported platform capability; release when workout ends or app loses eligibility; refusal/unsupported state degrades gracefully; no claim that wake lock guarantees background timers | [Clips / evidence](#p4-10-reference) |
 
 ### Threat and failure scenarios to cover
 
@@ -55,11 +56,71 @@ These are design and verification requirements. No penetration test, jurisdictio
 
 Begin with reliable core data and physical-phone acceptance. Health integration is its own adapter, watch logging is a separate client, and widgets/live activities are separate surfaces. Prioritize by measured device demand and team capacity. A static HTML file with mobile meta tags does not establish native background support.
 
+## Feature reference map
+
+Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md). Visible privacy/integration controls do not prove server enforcement, secure storage or background behavior.
+
+### P4-01 reference
+
+- **Names/notes as input surfaces — Related UI shown:** [V2 8:00–8:17](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=480s).
+- **Safe rendering, import schemas, bounds and rollback — Not demonstrated in V1/V2.** Use the [prototype security/import audit](../research/HEVY_AUDIT.md); do not treat a text-entry demo as a security test.
+
+### P4-02 reference
+
+- **Private profile, suggestion hiding and default visibility — Settings shown:** [V2 3:14–3:34](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=194s).
+- **Public/private profile fields — Screen shown:** [V2 6:18–6:35](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=378s).
+- **Account isolation, object permissions, coach/group audiences, deletion/block/revoke — Not demonstrated.** Use our access model and acceptance scenarios; sharing scopes remain future work.
+
+### P4-03 reference
+
+- **Foreground rest/adjust/skip — Shown:** [V1 2:24–2:39](https://www.youtube.com/watch?v=8ESngufwx6g&t=144s).
+- **Sound/silent-mode options — Settings shown:** [V2 4:15–4:48](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=255s).
+- **Keep-awake switch — Setting shown:** [V2 5:15–5:21](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=315s).
+- **Locked-screen, suspended/killed app, denied notifications and deadline recovery — Not demonstrated.** Create the supported-platform matrix and test actual devices.
+
+### P4-04 reference
+
+- **Export & Import Data — Entry point only:** [V2 3:51–3:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=231s).
+- **Retention, processors, consent, account deletion, analytics rules and legal review — Not demonstrated in V1/V2.** These are our governance requirements, scoped to personal needs now and launch market only later.
+
+### P4-05 reference
+
+- **Attach photo/video — Entry point only:** [V1 2:40–2:49](https://www.youtube.com/watch?v=8ESngufwx6g&t=160s).
+- **Posted workout media — Shown:** [V2 9:06–9:20](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=546s).
+- **Personal custom demo — Shown result:** [V2 9:58–10:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=598s).
+- **Upload/link storage mechanism, private authorization, metadata stripping, licensing and revocation — Not demonstrated.** Define with P2-13/P0-08; private custom media can remain local for personal use.
+
+### P4-06 reference
+
+- **Average heart rate in a saved workout — Shown:** [V2 9:06–9:20](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=546s); reviewer attributes it to Apple Health/watch connection around 9:13.
+- **Apple Health option — Entry point:** [V2 3:51–3:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=231s).
+- **Consent setup, permission refusal, source deduplication and Health Connect — Not demonstrated.** Use platform documentation and our adapter contract when requested; the recording does not prove mapping/reconciliation.
+
+### P4-07 reference
+
+- **Connected watch — Narrated only:** [V2 9:13–9:20](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=553s).
+- **Watch-app logging, WearOS, offline device sync and concurrent finalization — Not demonstrated in V1/V2.** [Official watch overview](https://www.hevyapp.com/) supplies product context, not the adapter contract. Keep optional for personal use.
+
+### P4-08 reference
+
+- **Strava/ChatGPT connection rows — Entry points shown:** [V2 3:54–4:08](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=234s).
+- **OAuth/token/revoke/rate-limit behavior, widgets and live activities — Not demonstrated.** [Official feature index](https://www.hevyapp.com/features/) is product context; adapter behavior needs separate specifications and platform sources.
+
+### P4-09 reference
+
+- **Trust reviews, recovery drills, secret checks and incident response — Not demonstrated in V1/V2.** Engineering/operational work defined by [AGENTS.md](../../AGENTS.md), the [audit](../research/HEVY_AUDIT.md) and P4-09 criteria.
+
+### P4-10 reference
+
+- **Keep Awake During Workout — Switch enabled:** [V2 5:15–5:21](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=315s).
+- **Actual screen-sleep prevention and release/refusal behavior — Not demonstrated.** Evaluate the owner's browser/native capability and lifecycle; P6-01 owns the preference, P1-02 its presentation.
+
 ## Video references & Assets
 
-- [Supplied review](https://www.youtube.com/watch?v=8ESngufwx6g): logger/rest at 2:16–2:39 and optional save/share around 2:39–2:51. It does not demonstrate native watch reconciliation.
+- [V1 review](https://www.youtube.com/watch?v=8ESngufwx6g); use the task-specific timestamp links above. Broad initial-review ranges are superseded by the verified feature index.
 - [Hevy platform overview](https://www.hevyapp.com/), [feature index](https://www.hevyapp.com/features/).
 - [../research/HEVY_AUDIT.md](../research/HEVY_AUDIT.md): inspected source risks and runtime limits.
+- [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw); specific clips and limits above. [Video index](../research/VIDEO_REFERENCE_INDEX.md).
 
 ## Next Immediate Action
 

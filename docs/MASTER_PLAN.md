@@ -8,6 +8,8 @@ The immediate priority is **trustworthy workout logging**. The prototype already
 
 Evidence and timestamped references: [research/HEVY_AUDIT.md](research/HEVY_AUDIT.md). Execution rules: [../AGENTS.md](../AGENTS.md). Session history: [PROGRESS_LOG.md](PROGRESS_LOG.md).
 
+**Feature handoff:** each pillar task has a **Feature references** link to its own exact scenes and evidence limits. The [video reference index](research/VIDEO_REFERENCE_INDEX.md) covers both supplied videos, distinguishes demonstrations from settings/narration, and identifies features not covered. Start with the task's clips instead of watching an entire review.
+
 ## 0. Personal-use roadmap — the active plan
 
 The user's clarification on 2026-10-14 supersedes the public-launch priority order. **Focus on pillars 0, 2, 1 and 5**, with the minimum relevant work from 4 and 6. Keep the current web prototype unless personal device/lifecycle needs demonstrate a reason to move. A backend, accounts, native rewrite and interviews are not prerequisites.
@@ -22,6 +24,8 @@ The user's clarification on 2026-10-14 supersedes the public-launch priority ord
 | Later, only if useful | Selected sync/device/guidance tasks | Move between your own devices or obtain explainable optional targets | P0-05 after an explicit sync/account decision; P4-06/07 and P5-05 individually scoped |
 
 These priorities overlap where contracts depend on each other: define metric/unit semantics before persistence migration, specify the logger before changing interactions, and add charts only after the underlying data is correct.
+
+The second-video review adds focused detail within the same pillars: **P2-11** previous values from any workout versus the same routine; **P2-12** optional inline timed sets/superset advancement; **P2-13** custom exercise demos and muscle metadata; **P4-10** optional keep-awake; **P6-08** separate audio feedback. Choose them when useful after the core logger is reliable. **P5-09** population strength comparisons stay deferred unless requested. No new pillar is necessary; the backlog now contains **76 future tasks**, all unimplemented.
 
 ### Personal milestones
 

@@ -31,15 +31,16 @@ Settings row, preference selector, account linking/recovery, consent/audience co
 
 ## What is left to do `[ ]`
 
-| ID | Priority / phase | Task and dependencies | Acceptance criteria |
-| --- | --- | --- | --- |
-| P6-01 | P1 / B–C | Versioned preferences; P2 unit/timer policy | Unit changes only presentation/input interpretation, never historical meaning; timer Off supported; validated bounds; locale decimals/week start; audio/haptics/theme/large-text compatibility; preference sync conflict rule explicit |
-| P6-02 | P1 / C | Account/data controls; P0-04/P4-04 | Export and deletion discoverable; guest/account switching safe; permissions/integrations revocable; account recovery verified; deletion retention exceptions disclosed after launch-market review |
-| P6-03 | P2 / E | Package and price research; P7-05 | Proposed free reliable logging/history/basic progress/export versus paid guidance/planning tested with retained users; exact prices/limits backed by evidence; recurring service cost model; no retroactive lock of owned data |
-| P6-04 | P0 / before paid release | Billing/entitlement architecture; P0 identity/P4 review | Provider/store decisions appropriate to distribution; server validates entitlement; idempotent purchase/callback handling; renewal/expiry/grace/refund/restore cases specified; offline access policy bounded and honest |
-| P6-05 | P1 / E | Purchase, restoration and downgrade experience | Duplicate callbacks cannot double grant/charge; device switch restores eligible access; expiry leaves core logger/history/export usable; active workout unaffected; clear retry/status/support paths |
-| P6-06 | P2 / E–F | Revenue/cost reporting and offer experiments | Gross-to-net reconciliation; cost by storage/media/AI/support; package cohort analysis; cancellation/refund and purchase failure reported; lifetime offers gated on sustainable economics |
-| P6-07 | P3 / F | Coach package and client permission boundaries; P3 pilot | Coach/client relationship permission separated from payment; access revocation works; no pooled user data by default; scope grounded in pilot needs |
+| ID | Priority / phase | Task and dependencies | Acceptance criteria | Feature references |
+| --- | --- | --- | --- | --- |
+| P6-01 | P1 / B–C | Versioned preferences; P2 unit/timer policy | Unit changes only presentation/input interpretation, never historical meaning; timer Off supported; validated bounds; locale decimals/week start; audio/haptics/theme/large-text compatibility; preference sync conflict rule explicit | [Clips / evidence](#p6-01-reference) |
+| P6-02 | P1 / C | Account/data controls; P0-04/P4-04 | Export and deletion discoverable; guest/account switching safe; permissions/integrations revocable; account recovery verified; deletion retention exceptions disclosed after launch-market review | [Clips / evidence](#p6-02-reference) |
+| P6-03 | P2 / E | Package and price research; P7-05 | Proposed free reliable logging/history/basic progress/export versus paid guidance/planning tested with retained users; exact prices/limits backed by evidence; recurring service cost model; no retroactive lock of owned data | [Clips / evidence](#p6-03-reference) |
+| P6-04 | P0 / before paid release | Billing/entitlement architecture; P0 identity/P4 review | Provider/store decisions appropriate to distribution; server validates entitlement; idempotent purchase/callback handling; renewal/expiry/grace/refund/restore cases specified; offline access policy bounded and honest | [Clips / evidence](#p6-04-reference) |
+| P6-05 | P1 / E | Purchase, restoration and downgrade experience | Duplicate callbacks cannot double grant/charge; device switch restores eligible access; expiry leaves core logger/history/export usable; active workout unaffected; clear retry/status/support paths | [Clips / evidence](#p6-05-reference) |
+| P6-06 | P2 / E–F | Revenue/cost reporting and offer experiments | Gross-to-net reconciliation; cost by storage/media/AI/support; package cohort analysis; cancellation/refund and purchase failure reported; lifetime offers gated on sustainable economics | [Clips / evidence](#p6-06-reference) |
+| P6-07 | P3 / F | Coach package and client permission boundaries; P3 pilot | Coach/client relationship permission separated from payment; access revocation works; no pooled user data by default; scope grounded in pilot needs | [Clips / evidence](#p6-07-reference) |
+| P6-08 | P1 / personal optional after reliable timers | Timer sound, completion sound and live-PR feedback controls; P2-03/P5-01, shared UI P1-02 | Choose supported timer sound; separate timer/check-set/PR volume or Off; silent-mode/autoplay limitations explicit; meaningful PR policy controls alerts; no duplicate audio; haptics are optional platform work not demonstrated by the videos | [Clips / evidence](#p6-08-reference) |
 
 ### Proposed packaging, still unvalidated
 
@@ -55,11 +56,65 @@ Do not choose a price because the reference video shows one. It was uploaded in 
 
 Pillar 0 stores identity and entitlement records; Pillar 4 reviews access/security; this pillar owns the purchase/expiry semantics. UI toggles never grant paid access. Settings do not own workout unit conversion or metric calculations; they invoke the domain contracts.
 
+## Feature reference map
+
+Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md). Personal preferences are active; subscription flows remain deferred. Recorded prices are not our pricing decision.
+
+### P6-01 reference
+
+- **Weight/distance/measurement units — Shown:** [V2 3:34–3:42](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=214s).
+- **Light/dark/device theme — Shown:** [V2 3:40–3:49](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=220s).
+- **Week start/default rest — Settings:** [V2 4:51–5:06](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=291s); week selection shown, rest selector not fully exercised.
+- **Previous-values scope — Setting shown:** [V2 5:04–5:15](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=304s); engine owner P2-11.
+- **Keep-awake — Setting enabled:** [V2 5:15–5:21](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=315s); adapter owner P4-10.
+- **RPE toggle — Setting only:** [V2 5:20–6:15](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=320s); no set-entry demo.
+- **Smart scrolling/inline timer/live-PR toggle — Settings only:** [V2 5:35–6:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=335s); runtime P2-12/P5-02.
+- **Sound settings:** exact scenes in P6-08 below. Numeric conversion, locale parsing, haptics, preference migrations and sync conflicts are not demonstrated.
+
+### P6-02 reference
+
+- **Profile editing/private fields — Shown:** [V2 6:18–6:35](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=378s).
+- **Export/import/Apple Health/notifications — Entry points:** [V2 3:51–3:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=231s).
+- **Integration Connect rows — Entry points:** [V2 3:54–4:08](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=234s).
+- **Deletion, account recovery/switching, permission revocation and export workflow — Not demonstrated.** Use P0/P4 contracts; avoid accounts as a prerequisite for personal use.
+
+### P6-03 reference
+
+- **Premium offer/history gating — Shown:** [V1 3:10–3:25](https://www.youtube.com/watch?v=8ESngufwx6g&t=190s) and [V2 10:46–11:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=646s).
+- **AI/unlimited feature pitch — Narrated:** [V2 11:45–12:00](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=705s).
+- **Our price research, package economics and data-ownership rules — Not demonstrated.** Use P6-03/P7-05 if a public product is requested; no paywall needed now.
+
+### P6-04 reference
+
+- **Commercial entry UI — Related screen only:** [V2 10:46–11:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=646s).
+- **Server entitlements, provider/store decision, verification, callback idempotency and offline grace — Not demonstrated in V1/V2.** Our future billing contract; never infer internals from an offer screen.
+
+### P6-05 reference
+
+- **Subscribe/plan choices — Entry point only:** [V2 10:46–11:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=646s).
+- **Completed purchase, restore, cancellation, expiry, refund and downgrade — Not demonstrated.** Specify/test separately if paid scope becomes active.
+
+### P6-06 reference
+
+- **Revenue/cost reconciliation, lifetime economics and offer experiments — Not demonstrated in V1/V2.** Use P6-06's business specification. Recorded offer prices do not reveal developer revenue or costs.
+
+### P6-07 reference
+
+- **Coach package/payment/permission boundaries — Not demonstrated in V1/V2.** Use P3-07/P6-07 only if requested; references to clients in narration are not a billing workflow.
+
+### P6-08 reference
+
+- **Timer sounds/volume — Settings shown:** [V2 4:15–4:25](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=255s); sound choices include Alarm and Boxing Bell.
+- **Completed-set volume/Off — Settings shown:** [V2 4:24–4:40](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=264s).
+- **Live-PR volume/Off and silent-mode note — Settings shown:** [V2 4:40–4:48](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=280s).
+- **A real completion/PR sound event, duplicate-alert handling, browser autoplay and haptics — Not demonstrated.** Verify on the owner's device; do not promise behavior solely from the settings screen.
+
 ## Video references & Assets
 
-- [Supplied review](https://www.youtube.com/watch?v=8ESngufwx6g): roughly 3:10–3:25 historical Pro offer; product-value reference only.
+- [V1 review](https://www.youtube.com/watch?v=8ESngufwx6g); use the task-specific timestamp links above. Broad initial-review ranges are superseded by the verified feature index.
 - [../MASTER_PLAN.md](../MASTER_PLAN.md): business gates and proposed packaging.
 - [../research/HEVY_AUDIT.md](../research/HEVY_AUDIT.md): current preferences and dated pricing boundary.
+- [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw) and [video index](../research/VIDEO_REFERENCE_INDEX.md); settings and pricing scenes are linked per task above.
 
 ## Next Immediate Action
 

@@ -51,7 +51,10 @@ Every agent working on this project must follow this protocol:
 
 2. Mark `[x]` only after the stated acceptance criteria have been met. Distinguish source inspection, runtime checks, and production verification. Planned work stays `[ ]`.
 3. Add new work as `[ ]` with a stable pillar task ID, priority, dependencies, and a concrete outcome. Record changed assumptions explicitly.
-4. Preserve relevant video URLs, timestamps, and asset references in the task and the pillar's Video references & Assets section.
+4. **Feature-level reference handoff:** Every roadmap task must link to its own reference section in the owning pillar. For each demonstrated feature or sub-feature, record the video ID, a direct timestamp URL, start/end `MM:SS` range, what to inspect, and whether it is shown, a setting/entry point only, narrated only, or not demonstrated. Consult [docs/research/VIDEO_REFERENCE_INDEX.md](docs/research/VIDEO_REFERENCE_INDEX.md). Never substitute a whole-video link or pillar-wide range for a specific feature reference.
+   - Before working on a feature, read its task references and inspect only the relevant clips initially. Read linked official material/specifications for anything the clips do not establish; do not assume the video is a complete implementation specification.
+   - When neither supplied video demonstrates a feature, say **Not demonstrated in V1/V2**, identify the relevant audit/specification/official source, and explain the remaining design decision. Do not invent a timestamp, imply a listed setting was exercised, or claim a reviewer opinion is the owner's preference.
+   - Keep both supplied video references, evidence limits and relevant assets in the pillar's Video references & Assets section. Update task references when new videos or requirements arrive; keep personal-first priorities unless the user changes them.
 5. Keep a concrete **Next Immediate Action** at the bottom of the pillar. Respect the current planning-only authorization.
 6. Keep pillar ownership isolated. Update another pillar only when the task changes its dependencies, shared contracts, or UI components, and cross-reference both.
 7. Update [docs/PROGRESS_LOG.md](docs/PROGRESS_LOG.md), newest first, with the date and a short account of the completed work and evidence.

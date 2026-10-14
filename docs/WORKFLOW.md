@@ -18,6 +18,12 @@ For implementation in a later session:
 
 The task ID identifies scope; the phase and dependencies identify when it is ready. Future implementation needs a new instruction because the original request explicitly excludes building.
 
+## Find the feature reference without watching a whole video
+
+Every task row in a pillar has a **Feature references** link to that task's local reference section. Open it, choose the named sub-feature, and follow its timestamp link. **V1** is the 4:35 Marcus review; **V2** is the 12:31 Home Gym Gains review. The [video reference index](research/VIDEO_REFERENCE_INDEX.md) identifies both sources and their verified scenes.
+
+References distinguish **Shown**, **Setting/entry point only**, **Narrated only**, and **Not demonstrated**. A settings switch or a narrator's comment does not prove its full runtime behavior. For non-video requirements, use the linked audit/specification and the task's acceptance criteria. Do not watch both full videos just to locate one feature, and do not fabricate missing references.
+
 ## Task states
 
 | State | Meaning |

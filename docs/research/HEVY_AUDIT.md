@@ -52,7 +52,7 @@ Desktop Chromium inspection does not verify physical-phone keyboards, screen-rea
 
 No exploit payload, destructive import, load test, or production security audit was run. The optional empty-data import runtime test was blocked by automatic approval review because it would overwrite browser storage; the associated finding rests on source code.
 
-## The supplied video: what was watched
+## First supplied video (V1): what was watched
 
 [Hevy App Review — Important Things To Know](https://www.youtube.com/watch?v=8ESngufwx6g), **Knowledge By Marcus**, uploaded **2024-12-04**, approximately **4:35**. Review method: native English captions plus 32 frames across the full video, inspected chronologically in four contact sheets. Timestamp ranges below are approximate visual landmarks aligned with captions. This is a sampled visual review, not a frame-by-frame playback.
 
@@ -69,6 +69,18 @@ No exploit payload, destructive import, load test, or production security audit 
 | [4:09–4:29](https://www.youtube.com/watch?v=8ESngufwx6g&t=249s) | Explore programs with filters and routine previews | Curated program discovery |
 
 The reviewer praises ease of use. One review is qualitative reference material, not evidence of market-wide demand. Visible 2024 prices and program counts are historical observations, not current pricing or catalogue commitments.
+
+The table above is a broad overview. Subsequent focused seeks checked 20 more V1 moments, including the **2:12–2:18 resume/start-new/cancel prompt**. Use the [feature reference index](VIDEO_REFERENCE_INDEX.md) and each pillar task's local references for the precise feature handoff; do not rely on a broad pillar range.
+
+## Second supplied video (V2): additional feature evidence
+
+[I Tried Hevy for 7 Days — Is It Actually the Best Gym App?](https://www.youtube.com/watch?v=CkYBAlBrAAw), **Home Gym Gains**, uploaded **2026-07-28**, approximately **12:31**. Inspected the full native English captions, 48 chronological overview frames and 44 targeted timestamp seeks. This is a sampled visual/caption review, not uninterrupted frame-by-frame playback. The reviewer calls the review first impressions in the narration; its title does not establish a controlled usage study.
+
+V2 provides additional detail for visibility/suggestion controls, weight/distance/measurement units, theme, separate sound settings, week start, previous-values scope, keep-awake, RPE and inline/superset settings, rep ranges, set-type help/removal, superset pairing, health-summary context and custom personal demos/muscle labels. These fit the existing pillars. Six tasks make specific details explicit; population strength comparisons remain optional/deferred for personal use.
+
+The [scene ledger](VIDEO_REFERENCE_INDEX.md) and task maps distinguish **Shown**, **Setting/entry point only**, **Narrated only** and **Not demonstrated**. In particular: RPE/inline/smart-scroll controls are visible without a logging trial; Apple Health/watch connection is narrated with average bpm shown but no setup; custom-demo playback does not reveal upload/link/privacy internals; AI connection/premium descriptions do not demonstrate generated-program execution. Recorded regional premium prices are not a current offer or this app's pricing decision.
+
+No new application features were implemented. The owner authorized adding these references and merging the documentation into GitHub.
 
 ## Current official Hevy benchmark
 
