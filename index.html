@@ -2765,19 +2765,24 @@
       renderExercisesTab();
     }
 
-    function chipRowHtml(options, selected, setter) {
-      let html = '<button class="chip' + (selected === '' ? ' on' : '') + '" onclick="' + setter + '(\'\')">All</button>';
+    /* JS-string escaping for values placed inside generated onclick handlers. */
+    function chipVal(s) {
+      return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    }
+
+    function chipRowHtml(options, selected, fnName, kind) {
+      let html = '<button class="chip' + (selected === '' ? ' on' : '') + '" onclick="' + fnName + '(\'' + kind + '\',\'\')">All</button>';
       options.forEach(function(o) {
-        html += '<button class="chip' + (selected === o ? ' on' : '') + '" onclick="' + setter + '(\'' + o + '\')">' + esc(o) + '</button>';
+        html += '<button class="chip' + (selected === o ? ' on' : '') + '" onclick="' + fnName + '(\'' + kind + '\',\'' + chipVal(o) + '\')">' + esc(o) + '</button>';
       });
       return html;
     }
 
     function renderExChips() {
       const mc = document.getElementById('exMuscleChips');
-      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, exFilterMuscle, "setExFilter('muscle', ");
+      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, exFilterMuscle, 'setExFilter', 'muscle');
       const ec = document.getElementById('exEquipChips');
-      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, exFilterEquip, "setExFilter('equip', ");
+      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, exFilterEquip, 'setExFilter', 'equip');
     }
 
     /* Shared filter: search matches name, muscle or equipment; a muscle chip
@@ -2871,9 +2876,9 @@
 
     function renderPickerList() {
       const mc = document.getElementById('pickerMuscleChips');
-      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, pickerFilterMuscle, "setPickerFilter('muscle', ");
+      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, pickerFilterMuscle, 'setPickerFilter', 'muscle');
       const ec = document.getElementById('pickerEquipChips');
-      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, pickerFilterEquip, "setPickerFilter('equip', ");
+      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, pickerFilterEquip, 'setPickerFilter', 'equip');
       const secs = getPickerSections();
       const recentEl = document.getElementById('pickerRecent');
       if (recentEl) {

@@ -230,6 +230,46 @@ describe('P2-06 escaping', () => {
   });
 });
 
+describe('P2-06 generated handlers compile and work', () => {
+  it('every-onclick-onchange-compiles-and-chip-filters', () => {
+    const app = createApp();
+    app.api.openCustomExModal();
+    app.el('newExName').value = "O'Brien Curl";
+    app.el('newExEquipment').value = 'Dumbbell';
+    app.el('newExMuscle').value = 'Biceps';
+    app.el('newExSecondary1').value = '';
+    app.el('newExSecondary2').value = '';
+    app.el('newExType').value = 'weight_reps';
+    assert.equal(app.api.saveCustomExercise(), true, 'quoted custom name saved');
+    const customId = app.api.state.exercises[0].id;
+    app.api.state.exercises[0].hidden = true;
+    app.api.toggleShowHidden(); // Show hidden on; re-renders the tab
+    app.api.renderExercisesTab();
+    app.api.openExercisePicker('workout');
+    app.api.togglePickerSelect('ex1');
+    app.api.setPickerFilter('muscle', 'Back');
+    app.api.setPickerFilter('muscle', 'Back'); // toggle off -> Recent renders too
+    app.api.openExerciseDetail(customId); // covers edit/unhide/favourite handlers
+    const html = [
+      'exMuscleChips', 'exEquipChips', 'exercisesDirectory',
+      'pickerMuscleChips', 'pickerEquipChips', 'pickerRecent', 'pickerList',
+      'exDetailBody',
+    ].map((id) => app.el(id).innerHTML).join('');
+    const attrs = [...html.matchAll(/on(?:click|change|input)="([^"]*)"/g)].map((m) => m[1]);
+    assert.ok(attrs.length > 10, 'generated handlers exist to check, found ' + attrs.length);
+    attrs.forEach((a) => { new Function(a); }); // throws on any syntax error
+    // Functional: evaluate a Chest muscle-chip handler, the list must filter.
+    const chest = attrs.find((a) => a.indexOf("'Chest'") >= 0 && a.indexOf('setExFilter') === 0);
+    assert.ok(chest, 'a Chest tab-chip handler exists, e.g. ' + attrs.find((a) => a.indexOf('Chest') >= 0));
+    new Function('setExFilter', chest)((k, v) => app.api.setExFilter(k, v));
+    const dir = app.el('exercisesDirectory').innerHTML;
+    const cards = dir.split('class="card"').length - 1;
+    assert.equal(cards, app.api.getFilteredExercises('', 'Chest', '', false).length, 'chip filters the tab to chest only');
+    assert.ok(dir.includes('Incline Dumbbell Press'), 'chest exercise shown');
+    assert.ok(!dir.includes('Pull-Up'), 'non-chest exercise hidden');
+  });
+});
+
 describe('P2-06 restore compatibility', () => {
   it('restore-accepts-old-backup-without-new-fields', () => {
     const app = createApp();
