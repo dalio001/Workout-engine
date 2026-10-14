@@ -560,7 +560,7 @@
   <div class="modal" id="routineModal">
     <div class="modal-content">
       <div class="modal-header">
-        <span>Create Routine</span>
+        <span id="routineModalTitle">Create Routine</span>
         <button class="btn" onclick="closeModal('routineModal')">✕</button>
       </div>
       <div class="modal-body">
@@ -599,6 +599,21 @@
         <button class="btn btn-primary btn-block" onclick="finishReviewTickAll()">Tick them as done</button>
         <button class="btn btn-block" style="margin-top:10px;" onclick="finishReviewDrop()">Drop them</button>
         <button class="btn btn-block" style="margin-top:10px;" onclick="finishReviewBack()">Go back</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROUTINE UPDATE OFFER (P2-04 personal part) -->
+  <div class="modal" id="routineUpdateModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Update routine from this workout?</span>
+        <button class="btn" onclick="declineRoutineUpdate()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="routineUpdateText" style="font-size:14px; line-height:1.6; margin-bottom:12px;"></div>
+        <button class="btn btn-primary btn-block" onclick="confirmRoutineUpdate()">Yes, update routine</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="declineRoutineUpdate()">No, keep routine</button>
       </div>
     </div>
   </div>
@@ -830,6 +845,14 @@
     let restPickerTarget = null;
     let pickerTarget = 'workout';
     let tempRoutineExercises = [];
+    /* P2-04 routine editor (personal part): editing id, delete-undo snapshot,
+       update-from-workout offer and builder rest-picker routing. */
+    let editingRoutineId = null;
+    let deletedRoutineBackup = null;
+    let deletedRoutineTimer = null;
+    let pendingRoutineUpdate = null;
+    let restPickerMode = 'workout';
+    let builderRestTarget = null;
     // NOTE: storage keys 'hevy_clone_state' and 'hevy_clone_active_session' are
     // intentionally NOT renamed: renaming them would delete the owner's saved workouts.
     const ACTIVE_SESSION_KEY = 'hevy_clone_active_session';
@@ -1068,7 +1091,20 @@
       const container = document.getElementById('routinesList');
       container.innerHTML = '';
 
-      state.routines.forEach(rt => {
+      // P2-04: delete-undo banner (10 s, in-memory only; a reload drops it).
+      if (deletedRoutineBackup) {
+        const banner = document.createElement('div');
+        banner.className = 'card';
+        banner.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-size:14px;">Routine deleted.</span>
+            <button class="btn" style="padding:6px 12px; font-size:13px;" onclick="undoDeleteRoutine()">↩️ Undo (10s)</button>
+          </div>
+        `;
+        container.appendChild(banner);
+      }
+
+      state.routines.forEach((rt, rtIdx) => {
         const exNames = rt.exercises.map(item => {
           const ex = state.exercises.find(e => e.id === item.exId);
           return ex ? `${item.sets}x ${ex.name}` : '';
@@ -1083,21 +1119,152 @@
           </div>
           <div class="routine-ex-list">${exNames || 'No exercises added'}</div>
           <button class="btn btn-primary btn-block" onclick="startRoutineWorkout('${rt.id}')">Start Routine</button>
+          <div style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+            <button class="btn" style="flex:1; min-height:44px;" onclick="editRoutine('${rt.id}')">✏️ Edit</button>
+            <button class="btn" style="flex:1; min-height:44px;" onclick="duplicateRoutine('${rt.id}')">⧉ Duplicate</button>
+            <button class="btn" style="min-height:44px; min-width:44px;" onclick="moveRoutine('${rt.id}', -1)">▲</button>
+            <button class="btn" style="min-height:44px; min-width:44px;" onclick="moveRoutine('${rt.id}', 1)">▼</button>
+          </div>
         `;
         container.appendChild(card);
       });
     }
 
+    /* P2-04 prescriptions: per-exercise targets + note live on the routine
+       item. Old items without these fields keep working via defaults (no
+       migration, SCHEMA_VERSION unchanged). History is never touched here. */
+    function parseRepsTarget(val) {
+      if (val === '' || val === null || val === undefined) return { min: null, max: null };
+      const t = String(val).trim();
+      if (!t) return { min: null, max: null };
+      const m = t.match(/^(\d+)\s*-\s*(\d+)$/) || t.match(/^(\d+)$/);
+      if (!m) return { min: null, max: null };
+      const a = parseInt(m[1], 10);
+      const b = (m[2] === undefined) ? a : parseInt(m[2], 10);
+      if (!isFinite(a) || !isFinite(b) || a < 1 || b < 1 || a > SET_MAX_REPS || b > SET_MAX_REPS || a > b) {
+        return { min: null, max: null };
+      }
+      return { min: a, max: b };
+    }
+
+    function formatRepsTarget(item) {
+      const lo = item ? item.targetRepsMin : null;
+      const hi = item ? item.targetRepsMax : null;
+      if (lo === null || lo === undefined || !isFinite(Number(lo))) return '';
+      if (hi === null || hi === undefined || Number(hi) === Number(lo)) return String(lo);
+      return lo + '-' + hi;
+    }
+
+    function normalizeRoutineItem(item) {
+      const src = item || {};
+      const n = parseInt(src.sets, 10);
+      const sets = (isFinite(n) && n >= 1) ? Math.min(n, 50) : 3;
+      let rp = { min: null, max: null };
+      if (src.targetRepsMin !== null && src.targetRepsMin !== undefined) {
+        const a = Number(src.targetRepsMin);
+        const b = (src.targetRepsMax === null || src.targetRepsMax === undefined) ? a : Number(src.targetRepsMax);
+        if (isFinite(a) && isFinite(b) && a >= 1 && b >= 1 && a <= SET_MAX_REPS && b <= SET_MAX_REPS && a <= b) {
+          rp = { min: a, max: b };
+        }
+      } else if (src.targetReps !== undefined) {
+        rp = parseRepsTarget(src.targetReps);
+      }
+      let w = null;
+      if (src.targetWeightKg !== null && src.targetWeightKg !== undefined && src.targetWeightKg !== '') {
+        const wn = Number(src.targetWeightKg);
+        if (isFinite(wn) && wn >= 0 && wn <= SET_MAX_WEIGHT_KG) w = wn;
+      }
+      let rest = state.defaultRest || 90;
+      if (typeof src.restSec === 'number' && isFinite(src.restSec) && src.restSec >= 0) rest = src.restSec;
+      return {
+        exId: src.exId,
+        sets,
+        targetRepsMin: rp.min,
+        targetRepsMax: rp.max,
+        targetWeightKg: w,
+        restSec: rest,
+        note: String(src.note || '').slice(0, 140)
+      };
+    }
+
     function deleteRoutine(id) {
       if (!confirm('Delete this routine?')) return;
-      state.routines = state.routines.filter(r => r.id !== id);
+      const idx = state.routines.findIndex(r => r.id === id);
+      if (idx < 0) return;
+      const removed = state.routines.splice(idx, 1)[0];
+      deletedRoutineBackup = {
+        routine: removed,
+        index: Math.min(idx, state.routines.length),
+        expiresAt: Date.now() + 10000
+      };
+      try { if (deletedRoutineTimer) clearTimeout(deletedRoutineTimer); } catch (e) {}
+      try { deletedRoutineTimer = setTimeout(function () { expireDeletedRoutine(); }, 10000); } catch (e) {}
+      saveState();
+      renderRoutines();
+    }
+
+    function undoDeleteRoutine() {
+      if (!deletedRoutineBackup) return;
+      state.routines.splice(Math.min(deletedRoutineBackup.index, state.routines.length), 0, deletedRoutineBackup.routine);
+      deletedRoutineBackup = null;
+      try { if (deletedRoutineTimer) clearTimeout(deletedRoutineTimer); } catch (e) {}
+      deletedRoutineTimer = null;
+      saveState();
+      renderRoutines();
+    }
+
+    function expireDeletedRoutine(now) {
+      if (!deletedRoutineBackup) return;
+      const t = (typeof now === 'number') ? now : Date.now();
+      if (t < deletedRoutineBackup.expiresAt) return;
+      deletedRoutineBackup = null;
+      deletedRoutineTimer = null;
+      renderRoutines();
+    }
+
+    function duplicateRoutine(id) {
+      const idx = state.routines.findIndex(r => r.id === id);
+      if (idx < 0) return;
+      const src = state.routines[idx];
+      const names = new Set(state.routines.map(r => r.name));
+      let name = src.name + ' (copy)';
+      let n = 2;
+      while (names.has(name)) { name = src.name + ' (copy ' + (n++) + ')'; }
+      state.routines.splice(idx + 1, 0, {
+        id: 'rt_' + Date.now(),
+        name,
+        exercises: (src.exercises || []).map(normalizeRoutineItem)
+      });
+      saveState();
+      renderRoutines();
+    }
+
+    function moveRoutine(id, delta) {
+      const i = state.routines.findIndex(r => r.id === id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= state.routines.length) return;
+      const m = state.routines.splice(i, 1)[0];
+      state.routines.splice(j, 0, m);
       saveState();
       renderRoutines();
     }
 
     function openRoutineBuilder() {
+      editingRoutineId = null;
       tempRoutineExercises = [];
       document.getElementById('routineNameInput').value = '';
+      document.getElementById('routineModalTitle').innerText = 'Create Routine';
+      renderRoutineBuilderList();
+      document.getElementById('routineModal').classList.add('open');
+    }
+
+    function editRoutine(id) {
+      const rt = state.routines.find(r => r.id === id);
+      if (!rt) return;
+      editingRoutineId = id;
+      tempRoutineExercises = (rt.exercises || []).map(normalizeRoutineItem);
+      document.getElementById('routineNameInput').value = rt.name;
+      document.getElementById('routineModalTitle').innerText = 'Edit Routine';
       renderRoutineBuilderList();
       document.getElementById('routineModal').classList.add('open');
     }
@@ -1106,16 +1273,103 @@
       const container = document.getElementById('routineBuilderExList');
       container.innerHTML = tempRoutineExercises.map((item, idx) => {
         const ex = state.exercises.find(e => e.id === item.exId);
+        const noteEsc = String(item.note || '').replace(/"/g, '&quot;');
         return `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--border);">
-            <span>${ex ? ex.name : ''}</span>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <input type="number" class="set-input" style="width:55px;" value="${item.sets}" onchange="tempRoutineExercises[${idx}].sets = parseInt(this.value)||1">
+          <div style="padding:8px 0; border-bottom:1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+              <span style="font-weight:700;">${ex ? ex.name : ''}</span>
+              <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeBuilderExercise(${idx})">✕</button>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
+              <input type="number" class="set-input" style="width:55px;" value="${item.sets}" onchange="updateBuilderSets(${idx}, this.value)">
               <span style="font-size:12px; color:var(--text-sub);">sets</span>
+              <input type="text" class="set-input" style="width:70px;" value="${formatRepsTarget(item)}" placeholder="8-12" onchange="updateBuilderReps(${idx}, this.value)">
+              <span style="font-size:12px; color:var(--text-sub);">reps</span>
+              <input type="number" class="set-input" style="width:70px;" value="${item.targetWeightKg === null ? '' : formatDisplayWeight(item.targetWeightKg)}" placeholder="${state.unit}" onchange="updateBuilderWeight(${idx}, this.value)">
+              <button class="rest-chip" onclick="openBuilderRestPicker(${idx})">${formatRestLabel(item.restSec)}</button>
+            </div>
+            <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" onchange="updateBuilderNote(${idx}, this.value)">
+            <div style="display:flex; gap:6px; margin-top:6px;">
+              <button class="btn" style="flex:1; min-height:44px;" onclick="moveBuilderExercise(${idx}, -1)">▲ Up</button>
+              <button class="btn" style="flex:1; min-height:44px;" onclick="moveBuilderExercise(${idx}, 1)">▼ Down</button>
             </div>
           </div>
         `;
       }).join('');
+    }
+
+    function updateBuilderSets(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      const n = parseInt(val, 10);
+      tempRoutineExercises[idx].sets = (isFinite(n) && n >= 1) ? Math.min(n, 50) : 1;
+      renderRoutineBuilderList();
+    }
+
+    function updateBuilderReps(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      const rp = parseRepsTarget(val);
+      tempRoutineExercises[idx].targetRepsMin = rp.min;
+      tempRoutineExercises[idx].targetRepsMax = rp.max;
+      renderRoutineBuilderList();
+    }
+
+    function updateBuilderWeight(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      if (val === '' || val === null || val === undefined) {
+        tempRoutineExercises[idx].targetWeightKg = null;
+      } else {
+        const kg = fromInputWeight(val, state.unit);
+        tempRoutineExercises[idx].targetWeightKg =
+          (isFinite(kg) && kg >= 0 && kg <= SET_MAX_WEIGHT_KG) ? Math.round(kg * 100) / 100 : null;
+      }
+      renderRoutineBuilderList();
+    }
+
+    function updateBuilderNote(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      tempRoutineExercises[idx].note = String(val || '').slice(0, 140);
+      renderRoutineBuilderList();
+    }
+
+    function moveBuilderExercise(idx, delta) {
+      const j = idx + delta;
+      if (!tempRoutineExercises[idx] || j < 0 || j >= tempRoutineExercises.length) return;
+      const m = tempRoutineExercises.splice(idx, 1)[0];
+      tempRoutineExercises.splice(j, 0, m);
+      renderRoutineBuilderList();
+    }
+
+    function removeBuilderExercise(idx) {
+      tempRoutineExercises.splice(idx, 1);
+      renderRoutineBuilderList();
+    }
+
+    function setBuilderRest(idx, sec) {
+      if (!tempRoutineExercises[idx]) return;
+      const s = Number(sec);
+      if (!isFinite(s) || s < 0) return;
+      tempRoutineExercises[idx].restSec = s;
+      builderRestTarget = null;
+      renderRoutineBuilderList();
+    }
+
+    function openBuilderRestPicker(idx) {
+      if (!tempRoutineExercises[idx]) return;
+      builderRestTarget = idx;
+      restPickerMode = 'routine';
+      const list = document.getElementById('restPickerList');
+      const item = tempRoutineExercises[idx];
+      const cur = (typeof item.restSec === 'number') ? item.restSec : (state.defaultRest || 90);
+      list.innerHTML = '';
+      REST_OPTIONS.forEach(sec => {
+        const b = document.createElement('button');
+        b.className = 'btn' + (sec === cur ? ' btn-primary' : '');
+        b.style.cssText = 'padding:8px 12px; font-size:14px;';
+        b.textContent = sec === 0 ? 'Off' : formatRestLabel(sec).replace('Rest ', '');
+        b.onclick = () => pickRestOption(sec);
+        list.appendChild(b);
+      });
+      document.getElementById('restPickerModal').classList.add('open');
     }
 
     function saveRoutine() {
@@ -1124,14 +1378,52 @@
         alert('Add at least one exercise to the routine.');
         return;
       }
-      state.routines.unshift({
-        id: 'rt_' + Date.now(),
-        name,
-        exercises: tempRoutineExercises
-      });
+      const items = tempRoutineExercises.map(normalizeRoutineItem);
+      if (editingRoutineId) {
+        const rt = state.routines.find(r => r.id === editingRoutineId);
+        if (!rt) return;
+        rt.name = name;
+        rt.exercises = items;
+      } else {
+        state.routines.unshift({
+          id: 'rt_' + Date.now(),
+          name,
+          exercises: items
+        });
+      }
+      editingRoutineId = null;
       saveState();
       renderRoutines();
       closeModal('routineModal');
+    }
+
+    /* P2-04: optional "update routine from this workout" offer. History is
+       saved first; the routine only changes on an explicit Yes. */
+    function confirmRoutineUpdate() {
+      const pending = pendingRoutineUpdate;
+      pendingRoutineUpdate = null;
+      document.getElementById('routineUpdateModal').classList.remove('open');
+      if (!pending) return;
+      const rt = state.routines.find(r => r.id === pending.routineId);
+      if (!rt) return;
+      const oldNotes = {};
+      (rt.exercises || []).forEach(it => { oldNotes[it.exId] = it.note || ''; });
+      rt.exercises = pending.items.map(it => normalizeRoutineItem({
+        exId: it.exId,
+        sets: it.sets,
+        targetRepsMin: it.targetRepsMin,
+        targetRepsMax: it.targetRepsMax,
+        targetWeightKg: it.targetWeightKg,
+        restSec: it.restSec,
+        note: oldNotes[it.exId] || ''
+      }));
+      saveState();
+      renderRoutines();
+    }
+
+    function declineRoutineUpdate() {
+      pendingRoutineUpdate = null;
+      document.getElementById('routineUpdateModal').classList.remove('open');
     }
 
     /* PREVIOUS PERFORMANCE LOOKUP — returns canonical kg; callers display via toDisplay. */
@@ -1229,6 +1521,7 @@
 
     function openRestPicker(exIdx) {
       restPickerTarget = exIdx;
+      restPickerMode = 'workout';
       const list = document.getElementById('restPickerList');
       const cur = getExerciseRestSec(exIdx);
       list.innerHTML = '';
@@ -1244,6 +1537,15 @@
     }
 
     function pickRestOption(sec) {
+      // P2-04: the same picker serves the routine builder (temp items, not a live workout).
+      if (restPickerMode === 'routine') {
+        const idx = builderRestTarget;
+        builderRestTarget = null;
+        restPickerMode = 'workout';
+        document.getElementById('restPickerModal').classList.remove('open');
+        setBuilderRest(idx, sec);
+        return;
+      }
       if (restPickerTarget === null || restPickerTarget === undefined) {
         closeModal('restPickerModal');
         return;
@@ -1317,20 +1619,24 @@
         finishing: false,
         routineId: rt.id,
         exercises: rt.exercises.map(item => {
+          const norm = normalizeRoutineItem(item);
           const sets = [];
-          for (let i = 0; i < item.sets; i++) {
+          for (let i = 0; i < norm.sets; i++) {
             const prev = getPreviousSet(item.exId, i);
+            // P2-04: explicit targets win; otherwise keep the legacy previous-value prefill.
+            const hasTargets = (norm.targetRepsMin !== null) || (norm.targetWeightKg !== null);
             sets.push({
               type: 'N',
-              weight: prev ? prev.weight : '',
-              reps: prev ? prev.reps : '',
+              weight: (norm.targetWeightKg !== null) ? norm.targetWeightKg : (prev ? prev.weight : ''),
+              reps: (!hasTargets && prev) ? prev.reps : '',
               done: false
             });
           }
           // P2-03: inherit per-exercise rest; old routines without restSec use the Profile default.
           const restSec = (typeof item.restSec === 'number' && isFinite(item.restSec) && item.restSec >= 0)
             ? item.restSec : (state.defaultRest || 90);
-          return { exId: item.exId, sets, restSec };
+          // P2-04: prescription hints carried into the session (never auto-ticked).
+          return { exId: item.exId, sets, restSec, note: norm.note || '', targetRepsLabel: formatRepsTarget(norm) };
         })
       };
       openWorkoutDrawer();
@@ -1392,6 +1698,7 @@
         `;
 
         let normalCounter = 1;
+        const repsPh = exItem.targetRepsLabel || '0';
         exItem.sets.forEach((s, sIdx) => {
           const prev = getPreviousSet(exItem.exId, sIdx);
           const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
@@ -1407,7 +1714,7 @@
               <button class="set-type-btn set-type-${s.type}" onclick="cycleSetType(${exIdx}, ${sIdx})">${label}</button>
               <div class="prev-text">${prevStr}</div>
               <input type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
-              <input type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
+              <input type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="${repsPh}" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
               <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
               ${rowMsg ? `<div class="set-error">${rowMsg}</div>` : ''}
             </div>
@@ -1419,6 +1726,7 @@
           <div class="ex-block-header">
             <div>
               <div class="ex-name">${exInfo.name}</div>
+              ${exItem.note ? `<div style="font-size:12px; color:var(--text-sub); margin-top:2px;">${exItem.note}</div>` : ''}
               <span class="badge">${exInfo.muscle}</span>
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
             </div>
@@ -1654,6 +1962,27 @@
         sets: ex.sets.filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0)
       })).filter(ex => ex.sets.length > 0);
 
+      // P2-04: optional "update routine from this workout" offer. History is
+      // saved first below; the routine only changes on an explicit Yes.
+      const finishedRoutineId = (activeWorkout && activeWorkout.routineId) || null;
+      let performedForUpdate = null;
+      if (finishedRoutineId) {
+        performedForUpdate = activeWorkout.exercises.map(ex => {
+          const doneSets = (ex.sets || []).filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0);
+          if (doneSets.length === 0) return null;
+          const last = doneSets[doneSets.length - 1];
+          return {
+            exId: ex.exId,
+            sets: doneSets.length,
+            targetRepsMin: Number(last.reps),
+            targetRepsMax: Number(last.reps),
+            targetWeightKg: Number(last.weight),
+            restSec: (typeof ex.restSec === 'number' && isFinite(ex.restSec) && ex.restSec >= 0)
+              ? ex.restSec : (state.defaultRest || 90)
+          };
+        }).filter(Boolean);
+      }
+
       if (completedExercises.length === 0) {
         alert('Complete at least one set (tap ✓) before finishing!');
         return;
@@ -1701,6 +2030,15 @@
       renderHistory();
       renderProfileStats();
       switchTab('history', document.querySelectorAll('.nav-item')[1]);
+      if (finishedRoutineId && performedForUpdate && performedForUpdate.length > 0 &&
+          state.routines.some(r => r.id === finishedRoutineId)) {
+        pendingRoutineUpdate = { routineId: finishedRoutineId, items: performedForUpdate };
+        document.getElementById('routineUpdateText').textContent =
+          'Update the routine from this workout (sets, targets, rest)? Past workouts stay unchanged.';
+        document.getElementById('routineUpdateModal').classList.add('open');
+      } else {
+        pendingRoutineUpdate = null;
+      }
     }
 
     function discardWorkout() {
@@ -1775,7 +2113,7 @@
         renderActiveWorkout();
         saveActiveSession();
       } else if (pickerTarget === 'routine') {
-        tempRoutineExercises.push({ exId, sets: 3 });
+        tempRoutineExercises.push(normalizeRoutineItem({ exId, sets: 3 }));
         renderRoutineBuilderList();
       }
       closeModal('exPickerModal');
