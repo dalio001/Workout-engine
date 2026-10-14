@@ -1,6 +1,6 @@
-# Workout-engine
+# PLZ FitZone
 
-**HevyLog Pro** — a single-file, mobile-first workout tracker (Hevy-style).
+**PLZ FitZone** — a single-file, mobile-first workout tracker (Pure Living Zone).
 
 ## Features
 - Routines (Push / Pull / Legs presets + custom routines)

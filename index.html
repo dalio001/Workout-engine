@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#0b0f19">
+  <meta name="theme-color" content="#0f172a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>HevyLog Pro - Workout Tracker</title>
+  <meta name="apple-mobile-web-app-title" content="PLZ FitZone">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <title>PLZ FitZone - Workout Tracker</title>
   <style>
     :root {
       --bg-main: #0b0f19;
@@ -185,7 +188,7 @@
       padding-bottom: 90px;
     }
 
-    /* SET TABLE (HEVY STYLE) */
+    /* SET TABLE */
     .ex-block {
       background: var(--bg-card);
       border: 1px solid var(--border);
@@ -366,7 +369,7 @@
 
   <!-- TOP HEADER -->
   <header>
-    <div class="logo">🏋️ HEVY<span>LOG</span></div>
+    <div class="logo">🏋️ PLZ<span>FitZone</span></div>
     <div style="display:flex; gap:8px;">
       <button class="btn" onclick="openPlateCalcModal()" title="Plate Calculator">🧮 Plates</button>
       <button class="btn" id="unitToggleBtn" onclick="toggleUnit()">KG</button>
@@ -646,6 +649,8 @@
     let restDeadline = null;
     let pickerTarget = 'workout';
     let tempRoutineExercises = [];
+    // NOTE: storage keys 'hevy_clone_state' and 'hevy_clone_active_session' are
+    // intentionally NOT renamed: renaming them would delete the owner's saved workouts.
     const ACTIVE_SESSION_KEY = 'hevy_clone_active_session';
     let pendingStartFn = null;
 
@@ -671,7 +676,7 @@
       if (draft) showResumeModal('load');
     }
 
-    /* P0-02: DURABLE LIVE SESSION (key hevy_clone_active_session; hevy_clone_state untouched) */
+    /* P0-02: DURABLE LIVE SESSION (key hevy_clone_active_session; hevy_clone_state untouched; keys kept so existing saved workouts survive the PLZ FitZone rename) */
     function showDraftSaveWarning() {
       const el = document.getElementById('draftSaveWarning');
       if (el) el.style.display = 'block';
@@ -1455,7 +1460,7 @@
       const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `HevyLog_Backup_${new Date().toISOString().slice(0,10)}.json`;
+      a.download = `PLZ_FitZone_Backup_${new Date().toISOString().slice(0,10)}.json`;
       a.click();
     }
 
@@ -1477,6 +1482,19 @@
     }
 
     init();
+
+    /* PLZ FitZone installability: register service worker; fail silently when
+       service workers are unavailable (e.g. file://). */
+    try {
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          try {
+            var swReg = navigator.serviceWorker.register('./sw.js');
+            if (swReg && swReg.catch) swReg.catch(function() {});
+          } catch (e) {}
+        });
+      }
+    } catch (e) {}
   </script>
 </body>
 </html>

@@ -47,6 +47,10 @@ Keep the logger free of social/premium interruptions. Advanced fields appear whe
 | P1-08 | P2 / E | Guidance and premium experience; P5-05/P6-03 | Suggested versus observed values clear; rationale/accept/undo available; paywall never interrupts active set completion; cancellation/restore affordances accessible | [Clips / evidence](#p1-08-reference) |
 | P1-09 | P3 / F | Desktop, localization and device adaptation | Wide-screen planner and keyboard flow; locale decimals/text expansion/units; platform-specific watch/widget designs owned with P4; verified against chosen devices | [Clips / evidence](#p1-09-reference) |
 
+### PLZ FitZone rename + installability (2026-10-14)
+
+- [ ] in progress, awaiting owner phone check — PLZ FitZone identity (supports P1-03 original identity): header logo is two-tone `PLZ` (accent blue) + `FitZone` (white), `<title>`/README/backup prefix renamed, original navy/FZ/blue-accent icons in `icons/`. No workout logic changed. Owner to verify on Android Chrome: header renders two-tone, install prompt/icon look right.
+
 ### Logging acceptance journey
 
 Open a routine → inspect/choose movement → enter a set → complete it → adjust rest → change an exercise → hide/resume → interrupt/recover → finish → confirm locally saved summary → inspect history. Every transition preserves acknowledged data. This is a future acceptance journey, not an implemented redesign.

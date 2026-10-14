@@ -2,6 +2,13 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — Renamed to PLZ FitZone and made installable, awaiting owner phone check
+
+- Renamed every visible product name in `index.html` (`<title>`, two-tone header logo now `PLZ` blue + `FitZone` white, backup prefix `PLZ_FitZone_Backup_...`, `HEVY STYLE` comment) and `README.md` title/first line. localStorage keys `hevy_clone_state` / `hevy_clone_active_session` intentionally unchanged (code comment explains renaming would delete saved workouts).
+- Installability: `tools/make_icons.py` (Python + Pillow, original navy/FZ/blue-accent mark) generated `icons/` (192, 512, maskable-512 with central-80% safe zone, apple-touch 180); `manifest.webmanifest` (name PLZ FitZone, short FitZone, standalone, `#0f172a`); `sw.js` (NETWORK-FIRST page with cache fallback, versioned cache, old caches deleted on activate); head links (`manifest`, `theme-color`, `apple-touch-icon`, `apple-mobile-web-app-title`) and silent-fail SW registration. No workout logic changed.
+- Checks: extracted `<script>` → `node --check` exit 0; `node --check sw.js` exit 0; manifest JSON loads; Pillow sizes 192/512/512/180; `grep -n -i hevy index.html README.md` shows only the two storage keys and their comments; `git diff --stat` shows only `index.html` + `README.md` modified plus new `icons/`, `manifest.webmanifest`, `sw.js`, `tools/make_icons.py`.
+- Noted in owning pillars as `[ ] in progress, awaiting owner phone check` (Pillar 1 identity, Pillar 0 delivery).
+
 ## 2026-10-14 — P0-02 live-session recovery implemented, awaiting owner device check
 
 - Implemented P0-02 exactly as `docs/pillars/plans/P0-02/PLAN.md` in `index.html` only: live workout persisted to `hevy_clone_active_session` on every change (start, set edit, tick, add/remove set or exercise, set type, title edit, rest start/stop/adjust); rest stored as end-timestamp `restDeadline`.

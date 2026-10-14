@@ -49,6 +49,10 @@ Recovery/resume prompt, save/sync indicator, import preview, conflict-resolution
 | P0-08 | P2 / D–F | Media/storage operations and scale budget; consult P3/P4/P6 | Private object access, bounded uploads, deletion lifecycle, backup restore drill and operational cost thresholds; realistic load scenario and measured capacity before scale claims | [Clips / evidence](#p0-08-reference) |
 | P0-09 | P2 / C–F | Web planning client and public integration contracts | Uses the same entity and unit contracts; no independent source of truth; API scopes/rate limits/export rules explicit; web capability gaps documented | [Clips / evidence](#p0-09-reference) |
 
+### PLZ FitZone installability/delivery (2026-10-14)
+
+- [ ] in progress, awaiting owner phone check — installable delivery (supports P0-01 offline strategy): `manifest.webmanifest`, `icons/`, `sw.js` (NETWORK-FIRST page with cache fallback, versioned cache `plz-fitzone-v1`, old caches deleted on activate; registration fails silently on `file://`). Owner to verify on phone: install from Android Chrome, new Vercel version shows on next online open, app opens offline.
+
 ### Proposed core contract
 
 - Stable session/exercise/set IDs and schema versions.
