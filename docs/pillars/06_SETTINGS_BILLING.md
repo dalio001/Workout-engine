@@ -42,6 +42,10 @@ Settings row, preference selector, account linking/recovery, consent/audience co
 | P6-07 | P3 / F | Coach package and client permission boundaries; P3 pilot | Coach/client relationship permission separated from payment; access revocation works; no pooled user data by default; scope grounded in pilot needs | [Clips / evidence](#p6-07-reference) |
 | P6-08 | P1 / personal optional after reliable timers | Timer sound, completion sound and live-PR feedback controls; P2-03/P5-01, shared UI P1-02 | Choose supported timer sound; separate timer/check-set/PR volume or Off; silent-mode/autoplay limitations explicit; meaningful PR policy controls alerts; no duplicate audio; haptics are optional platform work not demonstrated by the videos | [Clips / evidence](#p6-08-reference) |
 
+### P6-01 unit-part status (2026-10-14)
+
+- [ ] in progress, awaiting owner phone check — canonical-kg unit fix implemented in `index.html` on branch `codex/units-preserve-load`: all weights stored in kilograms (`state.schemaVersion = 2`, 1 kg = 2.20462 lb); the KG/LBS button only changes presentation via `toDisplayWeight` and input interpretation via `fromInputWeight` (kg display ≤2 decimals, lb display ≤1 decimal); active inputs, PREVIOUS column, history volume/best set, exercise est. 1RM, profile stats, PR detection and plate calculator (bar 20 kg / 45 lb) all route through the same helpers; legacy weights migrated once from the saved `state.unit` (default KG) with the untouched copy kept at `hevy_clone_state_backup_v1` (never overwritten); export includes `schemaVersion`, old imports run the same migration. Owner to verify on phone: log 100 kg, switch to LBS (shows 220.5 lb), switch back (shows 100 kg, stored values identical).
+
 ### Proposed packaging, still unvalidated
 
 | Layer | Proposed value | Evidence needed |

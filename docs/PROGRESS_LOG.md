@@ -2,6 +2,13 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — Canonical-kg unit fix implemented, awaiting owner phone check
+
+- Fixed the KG/LBS relabel bug in `index.html` on branch `codex/units-preserve-load`: every weight is stored in kilograms; the toggle only changes display (`toDisplayWeight`: kg ≤2 decimals, lb ≤1 decimal) and input reading (`fromInputWeight`: LBS typed values divided by 2.20462, KG saved as is). 100 kg now shows 220.5 lb; typing 225 lb stores 102.06 kg; toggling never rewrites stored kg.
+- Routed all weight uses through the same helpers: active inputs, PREVIOUS column, history volume/best set, exercise est. 1RM, profile stats, PR detection (all computed in kg) and plate calculator (bar 20 kg / 45 lb, target normalized via helpers).
+- One-time versioned migration to `state.schemaVersion = 2`: untouched old state backed up to `hevy_clone_state_backup_v1` (never overwritten); legacy weights interpreted in the saved `state.unit` (default KG); live draft migrated the same way; keys unchanged; export includes `schemaVersion`, old imports migrate identically.
+- Checks: extracted `<script>` → `node --check` passed with no output; new `tools/units-check.mjs` (no dependencies) passes all 19 assertions (100→220.5, 225lb→102.06kg, 10 toggles identical, LBS/KG/default-unit migration, backup create/keep); `git diff --stat` shows `index.html` + 2 pillar docs plus new `tools/units-check.mjs`. No browser run here (supervisor tests on phone); P6-01 unit part stays `[ ] in progress, awaiting owner phone check`, canonical-kg decision recorded in Pillar 0.
+
 ## 2026-10-14 — Renamed to PLZ FitZone and made installable, awaiting owner phone check
 
 - Renamed every visible product name in `index.html` (`<title>`, two-tone header logo now `PLZ` blue + `FitZone` white, backup prefix `PLZ_FitZone_Backup_...`, `HEVY STYLE` comment) and `README.md` title/first line. localStorage keys `hevy_clone_state` / `hevy_clone_active_session` intentionally unchanged (code comment explains renaming would delete saved workouts).

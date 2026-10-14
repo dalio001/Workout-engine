@@ -49,6 +49,11 @@ Recovery/resume prompt, save/sync indicator, import preview, conflict-resolution
 | P0-08 | P2 / D–F | Media/storage operations and scale budget; consult P3/P4/P6 | Private object access, bounded uploads, deletion lifecycle, backup restore drill and operational cost thresholds; realistic load scenario and measured capacity before scale claims | [Clips / evidence](#p0-08-reference) |
 | P0-09 | P2 / C–F | Web planning client and public integration contracts | Uses the same entity and unit contracts; no independent source of truth; API scopes/rate limits/export rules explicit; web capability gaps documented | [Clips / evidence](#p0-09-reference) |
 
+### Canonical-kg decision (2026-10-14, implemented awaiting owner phone check)
+
+- All workout weights are stored in one canonical unit: kilograms (`state.schemaVersion = 2`; 1 kg = 2.20462 lb). Display preference (`state.unit`) never rewrites stored values; `toDisplayWeight`/`fromInputWeight` in `index.html` are the single conversion pair used by logging, history, records, stats, PR detection and the plate calculator.
+- One-time versioned migration: the untouched pre-migration `hevy_clone_state` string is copied to `hevy_clone_state_backup_v1` (kept; never overwritten), legacy set weights are interpreted in the saved `state.unit` (default KG, LBS values divided by 2.20462 and rounded to 2 decimals), history `totalVolume` is recomputed from migrated sets, and a saved live draft (`hevy_clone_active_session`) is migrated the same way. Storage keys are unchanged. Export includes `schemaVersion`; imports without it run the same migration.
+
 ### PLZ FitZone installability/delivery (2026-10-14)
 
 - [ ] in progress, awaiting owner phone check — installable delivery (supports P0-01 offline strategy): `manifest.webmanifest`, `icons/`, `sw.js` (NETWORK-FIRST page with cache fallback, versioned cache `plz-fitzone-v1`, old caches deleted on activate; registration fails silently on `file://`). Owner to verify on phone: install from Android Chrome, new Vercel version shows on next online open, app opens offline.

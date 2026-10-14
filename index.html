@@ -636,11 +636,111 @@
     /* STATE */
     let state = {
       unit: 'KG',
+      schemaVersion: 2,
       defaultRest: 90,
       exercises: [],
       routines: [],
       history: []
     };
+
+    /* UNITS: canonical storage is kilograms. The KG/LBS toggle only changes
+       presentation (toDisplay) and input interpretation (fromInput).
+       Canonical decision owned here; display preference owned by Pillar 6. */
+    const LB_PER_KG = 2.20462;
+    const SCHEMA_VERSION = 2;
+    const BACKUP_V1_KEY = 'hevy_clone_state_backup_v1';
+
+    function toDisplayWeight(kgVal, unit) {
+      if (kgVal === '' || kgVal === null || kgVal === undefined) return '';
+      const n = Number(kgVal);
+      if (!isFinite(n)) return '';
+      const u = unit || state.unit || 'KG';
+      if (u === 'LBS') return Math.round(n * LB_PER_KG * 10) / 10;
+      return Math.round(n * 100) / 100;
+    }
+
+    function fromInputWeight(inputVal, unit) {
+      if (inputVal === '' || inputVal === null || inputVal === undefined) return '';
+      const n = parseFloat(inputVal);
+      if (!isFinite(n)) return 0;
+      const u = unit || state.unit || 'KG';
+      if (u === 'LBS') return Math.round((n / LB_PER_KG) * 100) / 100;
+      return n;
+    }
+
+    function formatDisplayWeight(kgVal, unit) {
+      const v = toDisplayWeight(kgVal, unit);
+      if (v === '') return '';
+      return String(v);
+    }
+
+    function toDisplayVolume(kgVol, unit) {
+      const n = Number(kgVol) || 0;
+      const u = unit || state.unit || 'KG';
+      const conv = u === 'LBS' ? n * LB_PER_KG : n;
+      if (Math.abs(conv) >= 100) return Math.round(conv);
+      return Math.round(conv * 10) / 10;
+    }
+
+    /* MIGRATION v1 -> v2: old weights have no per-set unit; they were recorded
+       in the saved state.unit (default KG). v2 stores kilograms. */
+    function backupV1Once(rawStr) {
+      try {
+        if (localStorage.getItem(BACKUP_V1_KEY) === null && rawStr != null) {
+          localStorage.setItem(BACKUP_V1_KEY, rawStr);
+        }
+      } catch (e) {}
+    }
+
+    function convertOldWeightToKg(w, savedUnit) {
+      if (w === '' || w === null || w === undefined) return w;
+      const n = Number(w);
+      if (!isFinite(n)) return w;
+      if (savedUnit === 'LBS') return Math.round((n / LB_PER_KG) * 100) / 100;
+      return n;
+    }
+
+    function migrateHistoryWeightsToKg(history, savedUnit) {
+      if (!Array.isArray(history)) return history;
+      history.forEach(w => {
+        if (!w || !Array.isArray(w.exercises)) return;
+        w.exercises.forEach(item => {
+          if (!item || !Array.isArray(item.sets)) return;
+          item.sets.forEach(s => {
+            if (s && 'weight' in s) s.weight = convertOldWeightToKg(s.weight, savedUnit);
+          });
+        });
+        let vol = 0;
+        w.exercises.forEach(item => {
+          (item.sets || []).forEach(s => {
+            vol += (Number(s.weight) || 0) * (Number(s.reps) || 0);
+          });
+        });
+        w.totalVolume = Math.round(vol * 100) / 100;
+      });
+      return history;
+    }
+
+    function migrateActiveDraftWeightsToKg(draft, savedUnit) {
+      if (!draft || !Array.isArray(draft.exercises)) return draft;
+      draft.exercises.forEach(item => {
+        if (!item || !Array.isArray(item.sets)) return;
+        item.sets.forEach(s => {
+          if (s && 'weight' in s) s.weight = convertOldWeightToKg(s.weight, savedUnit);
+        });
+      });
+      return draft;
+    }
+
+    function migrateParsedStateToV2(parsed) {
+      if (!parsed || typeof parsed !== 'object') return parsed;
+      if (parsed.schemaVersion === SCHEMA_VERSION) return parsed;
+      const savedUnit = parsed.unit === 'LBS' ? 'LBS' : 'KG';
+      migrateHistoryWeightsToKg(parsed.history, savedUnit);
+      parsed.schemaVersion = SCHEMA_VERSION;
+      if (!parsed.unit) parsed.unit = 'KG';
+      return parsed;
+    }
 
     let activeWorkout = null;
     let workoutInterval = null;
@@ -658,7 +758,26 @@
     function init() {
       const saved = localStorage.getItem('hevy_clone_state');
       if (saved) {
-        try { state = JSON.parse(saved); } catch(e) {}
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.schemaVersion !== SCHEMA_VERSION) {
+            backupV1Once(saved);
+            const savedUnit = parsed.unit === 'LBS' ? 'LBS' : 'KG';
+            migrateParsedStateToV2(parsed);
+            state = parsed;
+            saveState();
+            const rawDraft = loadActiveSessionDraftRaw();
+            if (rawDraft) {
+              try {
+                const d = JSON.parse(rawDraft);
+                migrateActiveDraftWeightsToKg(d, savedUnit);
+                try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(d)); } catch (e) {}
+              } catch (e) {}
+            }
+          } else {
+            if (parsed && typeof parsed === 'object') state = parsed;
+          }
+        } catch(e) {}
       }
       if (!state.exercises || state.exercises.length === 0) state.exercises = DEFAULT_EXERCISES;
       if (!state.routines || state.routines.length === 0) state.routines = DEFAULT_ROUTINES;
@@ -705,6 +824,10 @@
 
     function clearActiveSessionStorage() {
       try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) {}
+    }
+
+    function loadActiveSessionDraftRaw() {
+      try { return localStorage.getItem(ACTIVE_SESSION_KEY); } catch (e) { return null; }
     }
 
     function loadActiveSessionDraft() {
@@ -822,6 +945,8 @@
     }
 
     function saveState() {
+      if (!state || typeof state !== 'object') state = { unit: 'KG' };
+      state.schemaVersion = SCHEMA_VERSION;
       localStorage.setItem('hevy_clone_state', JSON.stringify(state));
     }
 
@@ -838,6 +963,8 @@
     }
 
     function toggleUnit() {
+      // Canonical kg values in state/history/draft are never rewritten here;
+      // only the display unit changes, and every view re-renders via toDisplay.
       state.unit = state.unit === 'KG' ? 'LBS' : 'KG';
       document.getElementById('unitToggleBtn').innerText = state.unit;
       saveState();
@@ -917,7 +1044,7 @@
       closeModal('routineModal');
     }
 
-    /* PREVIOUS PERFORMANCE LOOKUP */
+    /* PREVIOUS PERFORMANCE LOOKUP — returns canonical kg; callers display via toDisplay. */
     function getPreviousSet(exId, setIndex) {
       for (let i = 0; i < state.history.length; i++) {
         const w = state.history[i];
@@ -1043,14 +1170,14 @@
         let normalCounter = 1;
         exItem.sets.forEach((s, sIdx) => {
           const prev = getPreviousSet(exItem.exId, sIdx);
-          const prevStr = prev ? `${prev.weight}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
+          const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
           const label = s.type === 'N' ? normalCounter++ : s.type;
 
           setsHtml += `
             <div class="set-row ${s.done ? 'done' : ''}">
               <button class="set-type-btn set-type-${s.type}" onclick="cycleSetType(${exIdx}, ${sIdx})">${label}</button>
               <div class="prev-text">${prevStr}</div>
-              <input type="number" class="set-input" value="${s.weight}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
+              <input type="number" class="set-input" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
               <input type="number" class="set-input" value="${s.reps}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
               <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
             </div>
@@ -1083,7 +1210,11 @@
     }
 
     function updateSetVal(exIdx, sIdx, field, val) {
-      activeWorkout.exercises[exIdx].sets[sIdx][field] = parseFloat(val) || 0;
+      if (field === 'weight') {
+        activeWorkout.exercises[exIdx].sets[sIdx][field] = fromInputWeight(val, state.unit);
+      } else {
+        activeWorkout.exercises[exIdx].sets[sIdx][field] = (val === '' || val === null) ? '' : (parseFloat(val) || 0);
+      }
       saveActiveSession();
     }
 
@@ -1169,7 +1300,8 @@
       } catch(e) {}
     }
 
-    /* FINISH OR DISCARD WORKOUT */
+    /* FINISH OR DISCARD WORKOUT — all weights below are canonical kg; volume and
+       Epley est. 1RM are computed in kg so PR comparison is unit-independent. */
     function finishWorkout() {
       if (!activeWorkout || activeWorkout.finishing) return;
       const completedExercises = activeWorkout.exercises.map(ex => ({
@@ -1243,6 +1375,7 @@
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
     }
 
+    /* Best Epley estimate in canonical kg; display converts via toDisplay. */
     function getBest1RM(exId) {
       let best = 0;
       state.history.forEach(w => {
@@ -1303,7 +1436,8 @@
       container.innerHTML = state.exercises
         .filter(e => e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q))
         .map(e => {
-          const best1RM = Math.round(getBest1RM(e.id));
+          const bestKg = getBest1RM(e.id);
+          const bestStr = bestKg > 0 ? formatDisplayWeight(bestKg) + ' ' + state.unit : '—';
           return `
             <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
               <div>
@@ -1312,7 +1446,7 @@
               </div>
               <div style="text-align:right;">
                 <div style="font-size:12px; color:var(--text-sub);">Est. 1RM</div>
-                <div style="font-weight:800; color:var(--primary);">${best1RM > 0 ? best1RM + ' ' + state.unit : '—'}</div>
+                <div style="font-weight:800; color:var(--primary);">${bestStr}</div>
               </div>
             </div>
           `;
@@ -1352,7 +1486,7 @@
           return `
             <div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0;">
               <span><b>${item.sets.length} ×</b> ${ex.name} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
-              <span style="color:var(--text-sub);">Best: ${bestSet.weight}${state.unit} × ${bestSet.reps}</span>
+              <span style="color:var(--text-sub);">Best: ${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}</span>
             </div>
           `;
         }).join('');
@@ -1365,7 +1499,7 @@
             </div>
             <div style="display:flex; gap:14px; font-size:12px; color:var(--text-sub); margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:8px;">
               <span>⏱️ ${mins}m</span>
-              <span>🏋️ ${w.totalVolume.toLocaleString()} ${state.unit}</span>
+              <span>🏋️ ${toDisplayVolume(w.totalVolume).toLocaleString()} ${state.unit}</span>
               <span>📊 ${w.totalSets} sets</span>
             </div>
             ${exSummary}
@@ -1377,7 +1511,8 @@
     /* PROFILE & ANALYTICS */
     function renderProfileStats() {
       const totalWorkouts = state.history.length;
-      const totalVolume = state.history.reduce((sum, w) => sum + (w.totalVolume || 0), 0);
+      const totalVolumeKg = state.history.reduce((sum, w) => sum + (Number(w.totalVolume) || 0), 0);
+      const totalVolume = toDisplayVolume(totalVolumeKg);
       const totalSets = state.history.reduce((sum, w) => sum + (w.totalSets || 0), 0);
 
       document.getElementById('statWorkouts').innerText = totalWorkouts;
@@ -1423,7 +1558,10 @@
     }
 
     function calculatePlates() {
-      const target = parseFloat(document.getElementById('plateTargetInput').value) || 0;
+      const rawTarget = parseFloat(document.getElementById('plateTargetInput').value) || 0;
+      // Normalize through the shared helpers so typed/display rounding matches logging.
+      const targetKg = fromInputWeight(rawTarget, state.unit);
+      const target = Number(toDisplayWeight(targetKg === '' ? 0 : targetKg, state.unit)) || 0;
       const bar = state.unit === 'KG' ? 20 : 45;
       const plates = state.unit === 'KG' ? [25, 20, 15, 10, 5, 2.5, 1.25] : [45, 35, 25, 10, 5, 2.5];
       const out = document.getElementById('plateResult');
@@ -1470,7 +1608,9 @@
       const reader = new FileReader();
       reader.onload = (ev) => {
         try {
-          state = JSON.parse(ev.target.result);
+          const parsed = JSON.parse(ev.target.result);
+          migrateParsedStateToV2(parsed);
+          state = parsed;
           saveState();
           init();
           alert('✅ Workout history & routines restored!');
