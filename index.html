@@ -66,6 +66,7 @@
     main {
       flex: 1;
       overflow-y: auto;
+      overflow-x: hidden;
       padding: 16px;
       padding-bottom: 110px;
     }
@@ -381,6 +382,45 @@
       margin-bottom: 10px;
       outline: none;
     }
+
+    /* P2-06 catalogue chips: thumb-sized, scroll sideways inside their own
+       row so the page never gets wider (no horizontal page scroll at 412px). */
+    .chips {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      max-width: 100%;
+      padding: 2px 2px 10px 2px;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+    }
+    .chip {
+      flex: 0 0 auto;
+      min-height: 44px;
+      padding: 10px 16px;
+      border-radius: 22px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip.on {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+    .type-label {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -421,6 +461,11 @@
         <button class="btn btn-primary" onclick="openCustomExModal()">+ Create</button>
       </div>
       <input type="text" id="exSearchInput" class="input-field" placeholder="🔍 Search exercise or muscle..." oninput="renderExercisesTab()">
+      <div class="chips" id="exMuscleChips"></div>
+      <div class="chips" id="exEquipChips"></div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-sub); margin-bottom:10px; min-height:44px;">
+        <input type="checkbox" id="showHiddenChk" style="width:22px; height:22px;" onchange="toggleShowHidden()"> Show hidden
+      </label>
       <div id="exercisesDirectory"></div>
     </section>
 
@@ -553,7 +598,14 @@
       </div>
       <div class="modal-body">
         <input type="text" id="pickerSearch" class="input-field" placeholder="Search exercise..." oninput="renderPickerList()">
+        <div class="chips" id="pickerMuscleChips"></div>
+        <div class="chips" id="pickerEquipChips"></div>
+        <div id="pickerRecent"></div>
         <div id="pickerList"></div>
+        <div id="pickerFooter" style="display:flex; gap:8px; margin-top:12px;">
+          <button class="btn" style="flex:1; min-height:48px;" onclick="clearPickerSelected()">Clear</button>
+          <button class="btn btn-primary" id="pickerAddBtn" style="flex:2; min-height:48px;" onclick="addPickerSelected()">Add (0)</button>
+        </div>
       </div>
     </div>
   </div>
@@ -566,17 +618,43 @@
         <button class="btn" onclick="closeModal('customExModal')">✕</button>
       </div>
       <div class="modal-body">
-        <input type="text" id="newExName" class="input-field" placeholder="Exercise Name (e.g. Incline Cable Fly)">
+        <div style="font-weight:800; font-size:16px; margin-bottom:10px;" id="customExTitle">New Custom Exercise</div>
+        <input type="text" id="newExName" class="input-field" placeholder="Exercise Name (e.g. Incline Cable Fly)" maxlength="80">
+        <label style="font-size:13px; color:var(--text-sub);">Equipment</label>
+        <select id="newExEquipment" class="input-field"></select>
+        <label style="font-size:13px; color:var(--text-sub);">Primary muscle</label>
         <select id="newExMuscle" class="input-field">
           <option value="Chest">Chest</option>
           <option value="Back">Back</option>
-          <option value="Legs">Legs</option>
           <option value="Shoulders">Shoulders</option>
-          <option value="Arms">Arms</option>
+          <option value="Biceps">Biceps</option>
+          <option value="Triceps">Triceps</option>
+          <option value="Forearms">Forearms</option>
           <option value="Core">Core</option>
+          <option value="Quads">Quads</option>
+          <option value="Hamstrings">Hamstrings</option>
+          <option value="Glutes">Glutes</option>
+          <option value="Calves">Calves</option>
+          <option value="Full body">Full body</option>
         </select>
+        <label style="font-size:13px; color:var(--text-sub);">Secondary muscles (max 2)</label>
+        <select id="newExSecondary1" class="input-field"></select>
+        <select id="newExSecondary2" class="input-field"></select>
+        <label style="font-size:13px; color:var(--text-sub);">Type (label only)</label>
+        <select id="newExType" class="input-field"></select>
         <button class="btn btn-primary btn-block" onclick="saveCustomExercise()">Save Exercise</button>
       </div>
+    </div>
+  </div>
+
+  <!-- EXERCISE DETAIL SHEET (P2-06 personal part: numbers only, no charts) -->
+  <div class="modal" id="exDetailModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Exercise detail</span>
+        <button class="btn" onclick="closeModal('exDetailModal')">✕</button>
+      </div>
+      <div class="modal-body" id="exDetailBody"></div>
     </div>
   </div>
 
@@ -708,23 +786,213 @@
 
   <script>
     /* DEFAULT EXERCISES & ROUTINES */
-    const DEFAULT_EXERCISES = [
-      { id: 'ex1', name: 'Bench Press (Barbell)', muscle: 'Chest' },
-      { id: 'ex2', name: 'Incline Dumbbell Press', muscle: 'Chest' },
-      { id: 'ex3', name: 'Chest Fly (Cable)', muscle: 'Chest' },
-      { id: 'ex4', name: 'Lat Pulldown (Cable)', muscle: 'Back' },
-      { id: 'ex5', name: 'Bent Over Row (Barbell)', muscle: 'Back' },
-      { id: 'ex6', name: 'Seated Cable Row', muscle: 'Back' },
-      { id: 'ex7', name: 'Squat (Barbell)', muscle: 'Legs' },
-      { id: 'ex8', name: 'Romanian Deadlift (Barbell)', muscle: 'Legs' },
-      { id: 'ex9', name: 'Leg Press (Machine)', muscle: 'Legs' },
-      { id: 'ex10', name: 'Leg Curl (Machine)', muscle: 'Legs' },
-      { id: 'ex11', name: 'Overhead Press (Barbell)', muscle: 'Shoulders' },
-      { id: 'ex12', name: 'Lateral Raise (Dumbbell)', muscle: 'Shoulders' },
-      { id: 'ex13', name: 'Bicep Curl (Dumbbell)', muscle: 'Arms' },
-      { id: 'ex14', name: 'Tricep Rope Pushdown', muscle: 'Arms' },
-      { id: 'ex15', name: 'Hanging Leg Raise', muscle: 'Core' }
+    /* P2-06 personal catalogue (curated, ~100): compact rows
+       [id, name, equipment, primary muscle, secondary muscles[], type].
+       Names are written for this app (no copied database). ex1..ex15 keep
+       their ids and names so history and routines never break. `muscle` is
+       kept alongside `primary` so old records and old code paths keep working. */
+    const MUSCLES = ['Chest', 'Back', 'Shoulders', 'Biceps', 'Triceps', 'Forearms', 'Core', 'Quads', 'Hamstrings', 'Glutes', 'Calves', 'Full body'];
+    const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Kettlebell', 'Band', 'Other'];
+    const EXERCISE_TYPES = ['weight_reps', 'bodyweight_reps', 'assisted', 'duration'];
+    const TYPE_LABELS = { weight_reps: 'Weight × reps', bodyweight_reps: 'BW × reps', assisted: 'Assisted', duration: 'Duration' };
+    const EXERCISE_ROWS = [
+      ['ex1', 'Bench Press (Barbell)', 'Barbell', 'Chest', ['Shoulders', 'Triceps'], 'weight_reps'],
+      ['ex2', 'Incline Dumbbell Press', 'Dumbbell', 'Chest', ['Shoulders', 'Triceps'], 'weight_reps'],
+      ['ex3', 'Chest Fly (Cable)', 'Cable', 'Chest', ['Shoulders'], 'weight_reps'],
+      ['ex4', 'Lat Pulldown (Cable)', 'Cable', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex5', 'Bent Over Row (Barbell)', 'Barbell', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex6', 'Seated Cable Row', 'Cable', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex7', 'Squat (Barbell)', 'Barbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex8', 'Romanian Deadlift (Barbell)', 'Barbell', 'Hamstrings', ['Glutes'], 'weight_reps'],
+      ['ex9', 'Leg Press (Machine)', 'Machine', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex10', 'Leg Curl (Machine)', 'Machine', 'Hamstrings', [], 'weight_reps'],
+      ['ex11', 'Overhead Press (Barbell)', 'Barbell', 'Shoulders', ['Triceps'], 'weight_reps'],
+      ['ex12', 'Lateral Raise (Dumbbell)', 'Dumbbell', 'Shoulders', [], 'weight_reps'],
+      ['ex13', 'Bicep Curl (Dumbbell)', 'Dumbbell', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex14', 'Tricep Rope Pushdown', 'Cable', 'Triceps', [], 'weight_reps'],
+      ['ex15', 'Hanging Leg Raise', 'Bodyweight', 'Core', [], 'bodyweight_reps'],
+      ['ex16', 'Dumbbell Bench Press', 'Dumbbell', 'Chest', ['Triceps'], 'weight_reps'],
+      ['ex17', 'Push-Up', 'Bodyweight', 'Chest', ['Triceps'], 'bodyweight_reps'],
+      ['ex18', 'Incline Barbell Press', 'Barbell', 'Chest', ['Shoulders', 'Triceps'], 'weight_reps'],
+      ['ex19', 'Decline Dumbbell Press', 'Dumbbell', 'Chest', ['Triceps'], 'weight_reps'],
+      ['ex20', 'Machine Chest Press', 'Machine', 'Chest', ['Triceps'], 'weight_reps'],
+      ['ex21', 'Cable Crossover', 'Cable', 'Chest', [], 'weight_reps'],
+      ['ex22', 'Incline Dumbbell Fly', 'Dumbbell', 'Chest', [], 'weight_reps'],
+      ['ex23', 'Standing Cable Press', 'Cable', 'Chest', ['Triceps'], 'weight_reps'],
+      ['ex24', 'Knee Push-Up', 'Bodyweight', 'Chest', ['Triceps'], 'bodyweight_reps'],
+      ['ex25', 'Pull-Up', 'Bodyweight', 'Back', ['Biceps'], 'bodyweight_reps'],
+      ['ex26', 'Chin-Up', 'Bodyweight', 'Back', ['Biceps'], 'bodyweight_reps'],
+      ['ex27', 'One-Arm Dumbbell Row', 'Dumbbell', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex28', 'T-Bar Row', 'Barbell', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex29', 'Straight-Arm Pulldown', 'Cable', 'Back', [], 'weight_reps'],
+      ['ex30', 'Face Pull', 'Cable', 'Back', ['Shoulders'], 'weight_reps'],
+      ['ex31', 'Back Extension', 'Bodyweight', 'Back', ['Glutes'], 'bodyweight_reps'],
+      ['ex32', 'Machine Row', 'Machine', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex33', 'Inverted Row', 'Bodyweight', 'Back', ['Biceps'], 'bodyweight_reps'],
+      ['ex34', 'Dumbbell Shrug', 'Dumbbell', 'Back', ['Forearms'], 'weight_reps'],
+      ['ex35', 'Assisted Pull-Up', 'Machine', 'Back', ['Biceps'], 'assisted'],
+      ['ex36', 'Dumbbell Shoulder Press', 'Dumbbell', 'Shoulders', ['Triceps'], 'weight_reps'],
+      ['ex37', 'Arnold Press', 'Dumbbell', 'Shoulders', ['Triceps'], 'weight_reps'],
+      ['ex38', 'Cable Lateral Raise', 'Cable', 'Shoulders', [], 'weight_reps'],
+      ['ex39', 'Front Raise', 'Dumbbell', 'Shoulders', [], 'weight_reps'],
+      ['ex40', 'Rear-Delt Fly', 'Dumbbell', 'Shoulders', [], 'weight_reps'],
+      ['ex41', 'Machine Shoulder Press', 'Machine', 'Shoulders', ['Triceps'], 'weight_reps'],
+      ['ex42', 'Upright Row', 'Barbell', 'Shoulders', ['Biceps'], 'weight_reps'],
+      ['ex43', 'Kettlebell Press', 'Kettlebell', 'Shoulders', ['Triceps'], 'weight_reps'],
+      ['ex44', 'Band Pull-Apart', 'Band', 'Shoulders', [], 'weight_reps'],
+      ['ex45', 'Barbell Curl', 'Barbell', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex46', 'Hammer Curl', 'Dumbbell', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex47', 'Preacher Curl', 'Barbell', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex48', 'Cable Curl', 'Cable', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex49', 'Concentration Curl', 'Dumbbell', 'Biceps', [], 'weight_reps'],
+      ['ex50', 'Spider Curl', 'Dumbbell', 'Biceps', ['Forearms'], 'weight_reps'],
+      ['ex51', 'Overhead Extension', 'Dumbbell', 'Triceps', [], 'weight_reps'],
+      ['ex52', 'Skull Crusher', 'Barbell', 'Triceps', [], 'weight_reps'],
+      ['ex53', 'Cable Overhead Extension', 'Cable', 'Triceps', [], 'weight_reps'],
+      ['ex54', 'Bench Dip', 'Bodyweight', 'Triceps', ['Chest'], 'bodyweight_reps'],
+      ['ex55', 'Triceps Dip', 'Bodyweight', 'Triceps', ['Chest'], 'bodyweight_reps'],
+      ['ex56', 'Machine Dip', 'Machine', 'Triceps', ['Chest'], 'weight_reps'],
+      ['ex57', 'Assisted Dip', 'Machine', 'Triceps', ['Chest'], 'assisted'],
+      ['ex58', 'Wrist Curl', 'Dumbbell', 'Forearms', [], 'weight_reps'],
+      ['ex59', 'Reverse Curl', 'Barbell', 'Forearms', [], 'weight_reps'],
+      ['ex60', 'Plank', 'Bodyweight', 'Core', [], 'duration'],
+      ['ex61', 'Crunch', 'Bodyweight', 'Core', [], 'bodyweight_reps'],
+      ['ex62', 'Russian Twist', 'Bodyweight', 'Core', [], 'bodyweight_reps'],
+      ['ex63', 'Woodchopper', 'Cable', 'Core', [], 'weight_reps'],
+      ['ex64', 'Mountain Climber', 'Bodyweight', 'Core', [], 'duration'],
+      ['ex65', 'Dead Bug', 'Bodyweight', 'Core', [], 'bodyweight_reps'],
+      ['ex66', 'Side Plank', 'Bodyweight', 'Core', [], 'duration'],
+      ['ex67', 'Ab Wheel Rollout', 'Other', 'Core', [], 'bodyweight_reps'],
+      ['ex68', 'Hanging Knee Raise', 'Bodyweight', 'Core', [], 'bodyweight_reps'],
+      ['ex69', 'Front Squat', 'Barbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex70', 'Goblet Squat', 'Dumbbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex71', 'Leg Extension', 'Machine', 'Quads', [], 'weight_reps'],
+      ['ex72', 'Walking Lunge', 'Dumbbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex73', 'Bulgarian Split Squat', 'Dumbbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex74', 'Hack Squat', 'Machine', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex75', 'Step-Up', 'Dumbbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex76', 'Bodyweight Squat', 'Bodyweight', 'Quads', ['Glutes'], 'bodyweight_reps'],
+      ['ex77', 'Box Squat', 'Barbell', 'Quads', ['Glutes'], 'weight_reps'],
+      ['ex78', 'Seated Leg Curl', 'Machine', 'Hamstrings', [], 'weight_reps'],
+      ['ex79', 'Good Morning', 'Barbell', 'Hamstrings', ['Glutes'], 'weight_reps'],
+      ['ex80', 'Dumbbell Romanian Deadlift', 'Dumbbell', 'Hamstrings', ['Glutes'], 'weight_reps'],
+      ['ex81', 'Nordic Curl', 'Bodyweight', 'Hamstrings', ['Glutes'], 'bodyweight_reps'],
+      ['ex82', 'Hip Thrust', 'Barbell', 'Glutes', ['Hamstrings'], 'weight_reps'],
+      ['ex83', 'Glute Bridge', 'Bodyweight', 'Glutes', ['Hamstrings'], 'bodyweight_reps'],
+      ['ex84', 'Cable Kickback', 'Cable', 'Glutes', [], 'weight_reps'],
+      ['ex85', 'Kettlebell Swing', 'Kettlebell', 'Glutes', ['Hamstrings'], 'weight_reps'],
+      ['ex86', 'Sumo Deadlift', 'Barbell', 'Glutes', ['Quads'], 'weight_reps'],
+      ['ex87', 'Conventional Deadlift', 'Barbell', 'Glutes', ['Hamstrings', 'Back'], 'weight_reps'],
+      ['ex88', 'Trap Bar Deadlift', 'Barbell', 'Glutes', ['Quads', 'Hamstrings'], 'weight_reps'],
+      ['ex89', 'Standing Calf Raise', 'Machine', 'Calves', [], 'weight_reps'],
+      ['ex90', 'Seated Calf Raise', 'Dumbbell', 'Calves', [], 'weight_reps'],
+      ['ex91', 'Single-Leg Calf Raise', 'Bodyweight', 'Calves', [], 'bodyweight_reps'],
+      ['ex92', 'Burpee', 'Bodyweight', 'Full body', ['Chest', 'Quads'], 'bodyweight_reps'],
+      ['ex93', 'Thruster', 'Barbell', 'Full body', ['Quads', 'Shoulders'], 'weight_reps'],
+      ['ex94', 'Farmer Carry', 'Dumbbell', 'Full body', ['Forearms', 'Core'], 'duration'],
+      ['ex95', 'Battle Rope Wave', 'Other', 'Full body', ['Shoulders'], 'duration'],
+      ['ex96', 'Band Row', 'Band', 'Back', ['Biceps'], 'weight_reps'],
+      ['ex97', 'Floor Press', 'Dumbbell', 'Chest', ['Triceps'], 'weight_reps'],
+      ['ex98', 'Incline Push-Up', 'Bodyweight', 'Chest', ['Triceps'], 'bodyweight_reps'],
+      ['ex99', 'Decline Push-Up', 'Bodyweight', 'Chest', ['Triceps'], 'bodyweight_reps'],
+      ['ex100', 'Clean and Press', 'Barbell', 'Full body', ['Shoulders', 'Quads'], 'weight_reps']
     ];
+    function expandExerciseRow(r) {
+      return { id: r[0], name: r[1], equipment: r[2], muscle: r[3], primary: r[3], secondary: (r[4] || []).slice(0, 2), type: r[5], custom: false, fav: false, hidden: false };
+    }
+    const DEFAULT_EXERCISES = EXERCISE_ROWS.map(expandExerciseRow);
+    const BUILTIN_EXERCISE_IDS = {};
+    const BUILTIN_EXERCISE_DEFS = {};
+    DEFAULT_EXERCISES.forEach(function(e) { BUILTIN_EXERCISE_IDS[e.id] = true; BUILTIN_EXERCISE_DEFS[e.id] = e; });
+
+    /* P2-06 safety: every exercise name shown in HTML goes through esc(). */
+    function esc(s) {
+      return String(s === null || s === undefined ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    /* Primary muscle with fallback to the legacy `muscle` field. */
+    function exPrimary(ex) {
+      if (!ex) return 'Chest';
+      if (typeof ex.primary === 'string' && MUSCLES.indexOf(ex.primary) >= 0) return ex.primary;
+      if (typeof ex.muscle === 'string' && MUSCLES.indexOf(ex.muscle) >= 0) return ex.muscle;
+      return mapLegacyMuscle(ex.muscle || ex.primary, ex.name);
+    }
+
+    function typeLabel(t) {
+      return TYPE_LABELS[t] || TYPE_LABELS.weight_reps;
+    }
+
+    /* Legacy muscle mapping (approved): Arms -> Biceps, or Triceps when the
+       name says so; Legs -> Quads. Unknown values default to Chest. */
+    function mapLegacyMuscle(muscle, name) {
+      if (typeof muscle === 'string' && MUSCLES.indexOf(muscle) >= 0) return muscle;
+      if (muscle === 'Arms') return (/tri[cs]ep/i.test(String(name || '')) ? 'Triceps' : 'Biceps');
+      if (muscle === 'Legs') return 'Quads';
+      return 'Chest';
+    }
+
+    /* Fill one exercise record in place. Returns true when changed. */
+    function normalizeExerciseRecord(ex) {
+      if (!ex || typeof ex !== 'object' || typeof ex.id !== 'string' || typeof ex.name !== 'string') return false;
+      let changed = false;
+      const set = (k, v) => { if (JSON.stringify(ex[k]) !== JSON.stringify(v)) { ex[k] = v; changed = true; } };
+      const def = BUILTIN_EXERCISE_DEFS[ex.id];
+      const isBuiltin = !!def;
+      let equipment = ex.equipment;
+      if (EQUIPMENT.indexOf(equipment) < 0) equipment = (def && def.equipment) || 'Other';
+      set('equipment', equipment);
+      let primary = (typeof ex.primary === 'string' && MUSCLES.indexOf(ex.primary) >= 0) ? ex.primary : null;
+      if (!primary) {
+        if (def && (typeof ex.primary !== 'string' || MUSCLES.indexOf(ex.primary) < 0) && (typeof ex.muscle !== 'string' || MUSCLES.indexOf(ex.muscle) < 0 || ex.name === def.name)) {
+          primary = def.primary;
+        } else {
+          primary = mapLegacyMuscle(ex.muscle || ex.primary, ex.name);
+        }
+      }
+      set('primary', primary);
+      let secondary = Array.isArray(ex.secondary) ? ex.secondary.filter(s => typeof s === 'string' && MUSCLES.indexOf(s) >= 0 && s !== primary) : null;
+      if (!secondary) secondary = (def && def.secondary ? def.secondary.filter(s => s !== primary) : []).slice(0, 2);
+      secondary = secondary.slice(0, 2);
+      set('secondary', secondary);
+      set('type', EXERCISE_TYPES.indexOf(ex.type) >= 0 ? ex.type : ((def && def.type) || 'weight_reps'));
+      set('custom', !isBuiltin);
+      set('fav', ex.fav === true);
+      set('hidden', ex.hidden === true);
+      return changed;
+    }
+
+    /* P2-06 idempotent normalisation (NO schema bump): fills missing fields,
+       maps legacy muscles, merges missing built-ins by id (skipping names the
+       owner already has, case-insensitive). Runs on every load and after
+       restore/import; running it twice changes nothing. An intentionally
+       empty exercise list stays empty (P0-03 no-reseed rule). History and
+       routines are never touched (they store exId only). Pass skipMerge to
+       fill fields only (used by restore validation so the preview counts
+       describe the backup file, not the post-restore upgrade). */
+    function normalizeExercises(target, skipMerge) {
+      if (!target || typeof target !== 'object') return target;
+      if (!Array.isArray(target.exercises)) target.exercises = [];
+      if (target.exercises.length === 0) return target;
+      target.exercises.forEach(normalizeExerciseRecord);
+      if (skipMerge) return target;
+      const byId = {};
+      const names = {};
+      target.exercises.forEach(function(e) {
+        if (e && typeof e.id === 'string') byId[e.id] = true;
+        if (e && typeof e.name === 'string') names[String(e.name).trim().toLowerCase()] = true;
+      });
+      DEFAULT_EXERCISES.forEach(function(def) {
+        if (byId[def.id]) return;
+        if (names[String(def.name).trim().toLowerCase()]) return;
+        target.exercises.push({ id: def.id, name: def.name, equipment: def.equipment, muscle: def.muscle, primary: def.primary, secondary: def.secondary.slice(), type: def.type, custom: false, fav: false, hidden: false });
+      });
+      return target;
+    }
 
     const DEFAULT_ROUTINES = [
       {
@@ -888,6 +1156,16 @@
     let restPickerTarget = null;
     let pickerTarget = 'workout';
     let tempRoutineExercises = [];
+    /* P2-06 personal catalogue: chip filters, multi-select, hidden toggle,
+       custom edit target and detail target (all in-memory, not persisted). */
+    let exFilterMuscle = '';
+    let exFilterEquip = '';
+    let pickerFilterMuscle = '';
+    let pickerFilterEquip = '';
+    let pickerSelected = {};
+    let showHiddenExercises = false;
+    let editingExId = null;
+    let detailExId = null;
     /* P2-04 routine editor (personal part): editing id, delete-undo snapshot,
        update-from-workout offer and builder rest-picker routing. */
     let editingRoutineId = null;
@@ -942,6 +1220,9 @@
       // P0-03: seed defaults ONLY on a true first run (no saved state at all).
       // A saved state that intentionally holds an empty array keeps it empty.
       applySeedDefaults(state, hadSavedState);
+      // P2-06: idempotent exercise normalisation on every load (no version bump).
+      normalizeExercises(state);
+      if (hadSavedState) saveState();
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       state.plateSettings = normalizePlateSettings(state.plateSettings);
 
@@ -1176,7 +1457,7 @@
       state.routines.forEach((rt, rtIdx) => {
         const exNames = rt.exercises.map(item => {
           const ex = state.exercises.find(e => e.id === item.exId);
-          return ex ? `${item.sets}x ${ex.name}` : '';
+          return ex ? `${item.sets}x ${esc(ex.name)}` : '';
         }).filter(Boolean).join(' • ');
 
         const card = document.createElement('div');
@@ -1346,7 +1627,7 @@
         return `
           <div style="padding:8px 0; border-bottom:1px solid var(--border);">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-              <span style="font-weight:700;">${ex ? ex.name : ''}</span>
+              <span style="font-weight:700;">${ex ? esc(ex.name) : ''}</span>
               <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeBuilderExercise(${idx})">✕</button>
             </div>
             <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
@@ -1897,8 +2178,8 @@
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
-              <div class="ex-name">${exInfo.name}</div>
-              <span class="badge">${exInfo.muscle}</span>
+              <div class="ex-name">${esc(exInfo.name)}</div>
+              <span class="badge">${esc(exPrimary(exInfo))}</span>
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
               <button class="btn" style="margin-left:6px; padding:4px 8px; font-size:12px;" title="Plate calculator" onclick="openPlateCalcFor(${exIdx})">🧮</button>
             </div>
@@ -2455,41 +2736,208 @@
       return best;
     }
 
-    /* EXERCISE PICKER & LIBRARY */
+    /* EXERCISE PICKER & LIBRARY (P2-06 personal catalogue: filters,
+       favourites, recent, multi-add; replace stays single-tap). */
     function openExercisePicker(target) {
       pickerTarget = target;
+      pickerSelected = {};
+      pickerFilterMuscle = '';
+      pickerFilterEquip = '';
       document.getElementById('pickerSearch').value = '';
       renderPickerList();
       document.getElementById('exPickerModal').classList.add('open');
     }
 
+    function setExFilter(kind, val) {
+      if (kind === 'muscle') exFilterMuscle = (exFilterMuscle === val) ? '' : val;
+      else exFilterEquip = (exFilterEquip === val) ? '' : val;
+      renderExercisesTab();
+    }
+
+    function setPickerFilter(kind, val) {
+      if (kind === 'muscle') pickerFilterMuscle = (pickerFilterMuscle === val) ? '' : val;
+      else pickerFilterEquip = (pickerFilterEquip === val) ? '' : val;
+      renderPickerList();
+    }
+
+    function toggleShowHidden() {
+      showHiddenExercises = !showHiddenExercises;
+      renderExercisesTab();
+    }
+
+    function chipRowHtml(options, selected, setter) {
+      let html = '<button class="chip' + (selected === '' ? ' on' : '') + '" onclick="' + setter + '(\'\')">All</button>';
+      options.forEach(function(o) {
+        html += '<button class="chip' + (selected === o ? ' on' : '') + '" onclick="' + setter + '(\'' + o + '\')">' + esc(o) + '</button>';
+      });
+      return html;
+    }
+
+    function renderExChips() {
+      const mc = document.getElementById('exMuscleChips');
+      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, exFilterMuscle, "setExFilter('muscle', ");
+      const ec = document.getElementById('exEquipChips');
+      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, exFilterEquip, "setExFilter('equip', ");
+    }
+
+    /* Shared filter: search matches name, muscle or equipment; a muscle chip
+       matches primary or secondary muscles. Hidden needs explicit opt-in. */
+    function getFilteredExercises(q, muscle, equip, includeHidden) {
+      const query = String(q === undefined || q === null ? '' : q).trim().toLowerCase();
+      return state.exercises.filter(e => {
+        if (!e || typeof e.id !== 'string') return false;
+        if (e.hidden && !includeHidden) return false;
+        if (muscle) {
+          const p = exPrimary(e);
+          if (p !== muscle && (e.secondary || []).indexOf(muscle) < 0) return false;
+        }
+        if (equip && (e.equipment || 'Other') !== equip) return false;
+        if (query) {
+          const hay = (e.name + ' ' + exPrimary(e) + ' ' + (e.equipment || '')).toLowerCase();
+          if (hay.indexOf(query) < 0) return false;
+        }
+        return true;
+      });
+    }
+
+    /* Last 10 exercises used in finished workouts (history is newest-first).
+       Hidden or deleted exercises never appear here. */
+    function getRecentExerciseIds() {
+      const seen = {};
+      const out = [];
+      state.history.forEach(w => {
+        (w.exercises || []).forEach(item => {
+          const id = item && item.exId;
+          if (!id || seen[id]) return;
+          seen[id] = true;
+          const ex = state.exercises.find(e => e.id === id);
+          if (ex && !ex.hidden) out.push(id);
+        });
+      });
+      return out.slice(0, 10);
+    }
+
+    function exerciseBadgesHtml(e) {
+      return '<span class="badge">' + esc(e.equipment || 'Other') + '</span> ' +
+        '<span class="badge">' + esc(exPrimary(e)) + '</span> ' +
+        '<span class="type-label">' + esc(typeLabel(e.type)) + '</span>';
+    }
+
+    function favStarHtml(e) {
+      return '<button class="btn" style="min-height:44px; min-width:48px;" onclick="event.stopPropagation(); toggleFav(\'' + e.id + '\')">' + (e.fav ? '★' : '☆') + '</button>';
+    }
+
+    function toggleFav(exId) {
+      const ex = state.exercises.find(e => e.id === exId);
+      if (!ex) return false;
+      ex.fav = !ex.fav;
+      saveState();
+      renderExercisesTab();
+      renderPickerList();
+      if (detailExId === exId) renderExerciseDetail();
+      return ex.fav;
+    }
+
+    function pickerRowHtml(e) {
+      if (pickerTarget === 'replace') {
+        return '<div style="padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectExercise(\'' + e.id + '\')">' +
+          '<div><div style="font-weight:700;">' + esc(e.name) + '</div><div style="margin-top:4px;">' + exerciseBadgesHtml(e) + '</div></div>' +
+          '<span style="color:var(--primary); font-weight:800;">＋</span></div>';
+      }
+      const checked = pickerSelected[e.id] ? ' checked' : '';
+      return '<div style="padding:12px; border-bottom:1px solid var(--border); display:flex; gap:10px; align-items:center;">' +
+        '<input type="checkbox" style="width:24px; height:24px; flex:0 0 auto;"' + checked + ' onclick="event.stopPropagation()" onchange="togglePickerSelect(\'' + e.id + '\')">' +
+        '<div style="flex:1; min-width:0; cursor:pointer;" onclick="togglePickerSelect(\'' + e.id + '\')">' +
+        '<div style="font-weight:700;">' + esc(e.name) + '</div><div style="margin-top:4px;">' + exerciseBadgesHtml(e) + '</div></div>' +
+        favStarHtml(e) + '</div>';
+    }
+
+    function getPickerSections() {
+      const q = document.getElementById('pickerSearch').value;
+      const list = getFilteredExercises(q, pickerFilterMuscle, pickerFilterEquip, false);
+      const hasFilter = String(q || '').trim() !== '' || pickerFilterMuscle !== '' || pickerFilterEquip !== '';
+      let recent = [];
+      if (!hasFilter && pickerTarget !== 'replace') {
+        recent = getRecentExerciseIds()
+          .map(id => state.exercises.find(e => e.id === id))
+          .filter(Boolean);
+      }
+      return { recent, list };
+    }
+
+    function countPickerSelected() {
+      return Object.keys(pickerSelected).filter(k => pickerSelected[k]).length;
+    }
+
     function renderPickerList() {
-      const q = document.getElementById('pickerSearch').value.toLowerCase();
+      const mc = document.getElementById('pickerMuscleChips');
+      if (mc) mc.innerHTML = chipRowHtml(MUSCLES, pickerFilterMuscle, "setPickerFilter('muscle', ");
+      const ec = document.getElementById('pickerEquipChips');
+      if (ec) ec.innerHTML = chipRowHtml(EQUIPMENT, pickerFilterEquip, "setPickerFilter('equip', ");
+      const secs = getPickerSections();
+      const recentEl = document.getElementById('pickerRecent');
+      if (recentEl) {
+        recentEl.innerHTML = secs.recent.length
+          ? '<h3>Recent</h3>' + secs.recent.map(pickerRowHtml).join('')
+          : '';
+      }
       const list = document.getElementById('pickerList');
-      list.innerHTML = state.exercises
-        .filter(e => e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q))
-        .map(e => `
-          <div style="padding:12px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; cursor:pointer;" onclick="selectExercise('${e.id}')">
-            <div>
-              <div style="font-weight:700;">${e.name}</div>
-              <span class="badge">${e.muscle}</span>
-            </div>
-            <span style="color:var(--primary); font-weight:800;">＋</span>
-          </div>
-        `).join('');
+      list.innerHTML = (secs.recent.length ? '<h3>All exercises</h3>' : '') + secs.list.map(pickerRowHtml).join('');
+      const footer = document.getElementById('pickerFooter');
+      if (footer) footer.style.display = (pickerTarget === 'replace') ? 'none' : 'flex';
+      const addBtn = document.getElementById('pickerAddBtn');
+      if (addBtn) addBtn.innerText = 'Add (' + countPickerSelected() + ')';
+    }
+
+    function togglePickerSelect(exId) {
+      if (pickerSelected[exId]) delete pickerSelected[exId];
+      else pickerSelected[exId] = true;
+      renderPickerList();
+    }
+
+    function clearPickerSelected() {
+      pickerSelected = {};
+      renderPickerList();
+    }
+
+    /* One exercise appended to the live workout (previous values prefilled). */
+    function addExerciseToWorkout(exId) {
+      let inst = 0;
+      activeWorkout.exercises.forEach(e => { if (e && e.exId === exId) inst++; });
+      const prev = getPreviousSet(exId, 0, 'N', inst, activeWorkout.routineId || null);
+      activeWorkout.exercises.push({
+        exId,
+        restSec: (state.defaultRest || 90),
+        note: '',
+        sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
+      });
+    }
+
+    /* Multi-add: ticked exercises in listed order (recent first, then the
+       filtered list, deduplicated). Replace stays single-tap. */
+    function addPickerSelected() {
+      const secs = getPickerSections();
+      const ids = [];
+      secs.recent.concat(secs.list).forEach(e => {
+        if (pickerSelected[e.id] && ids.indexOf(e.id) < 0) ids.push(e.id);
+      });
+      if (ids.length === 0) return 0;
+      if (pickerTarget === 'routine') {
+        ids.forEach(id => { tempRoutineExercises.push(normalizeRoutineItem({ exId: id, sets: 3 })); });
+        renderRoutineBuilderList();
+      } else if (pickerTarget === 'workout' && activeWorkout) {
+        ids.forEach(id => { addExerciseToWorkout(id); });
+        renderActiveWorkout();
+        saveActiveSession();
+      }
+      pickerSelected = {};
+      closeModal('exPickerModal');
+      return ids.length;
     }
 
     function selectExercise(exId) {
       if (pickerTarget === 'workout' && activeWorkout) {
-        let inst = 0;
-        activeWorkout.exercises.forEach(e => { if (e && e.exId === exId) inst++; });
-        const prev = getPreviousSet(exId, 0, 'N', inst, activeWorkout.routineId || null);
-        activeWorkout.exercises.push({
-          exId,
-          restSec: (state.defaultRest || 90),
-          note: '',
-          sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
-        });
+        addExerciseToWorkout(exId);
         renderActiveWorkout();
         saveActiveSession();
       } else if (pickerTarget === 'replace' && activeWorkout) {
@@ -2507,41 +2955,210 @@
     }
 
     function renderExercisesTab() {
+      renderExChips();
+      const chk = document.getElementById('showHiddenChk');
+      if (chk) chk.checked = showHiddenExercises;
       const q = (document.getElementById('exSearchInput')?.value || '').toLowerCase();
       const container = document.getElementById('exercisesDirectory');
-      container.innerHTML = state.exercises
-        .filter(e => e.name.toLowerCase().includes(q) || e.muscle.toLowerCase().includes(q))
+      const list = getFilteredExercises(q, exFilterMuscle, exFilterEquip, showHiddenExercises);
+      if (list.length === 0) {
+        container.innerHTML = '<div class="card" style="text-align:center; color:var(--text-sub);">No exercises match. Adjust search or filters.</div>';
+        return;
+      }
+      container.innerHTML = list
         .map(e => {
           const bestKg = getBest1RM(e.id);
           const bestStr = bestKg > 0 ? formatDisplayWeight(bestKg) + ' ' + state.unit : '—';
+          const flags = (e.custom ? ' <span class="badge">custom</span>' : '') + (e.hidden ? ' <span class="badge">hidden</span>' : '') + (e.fav ? ' <span class="badge">★</span>' : '');
           return `
-            <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <div style="font-weight:700;">${e.name}</div>
-                <span class="badge">${e.muscle}</span>
+            <div class="card" style="display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer;" onclick="openExerciseDetail('${e.id}')">
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700;">${esc(e.name)}${flags}</div>
+                <div style="margin-top:4px;">${exerciseBadgesHtml(e)}</div>
               </div>
-              <div style="text-align:right;">
-                <div style="font-size:12px; color:var(--text-sub);">Est. 1RM</div>
-                <div style="font-weight:800; color:var(--primary);">${bestStr}</div>
+              <div style="display:flex; flex-direction:column; align-items:flex-end; gap:6px;">
+                <div style="text-align:right;">
+                  <div style="font-size:12px; color:var(--text-sub);">Est. 1RM</div>
+                  <div style="font-weight:800; color:var(--primary);">${bestStr}</div>
+                </div>
+                ${favStarHtml(e)}
               </div>
             </div>
           `;
         }).join('');
     }
 
-    function openCustomExModal() {
-      document.getElementById('newExName').value = '';
+    function fillCustomExSelects() {
+      const eq = document.getElementById('newExEquipment');
+      if (eq) eq.innerHTML = EQUIPMENT.map(o => '<option value="' + esc(o) + '">' + esc(o) + '</option>').join('');
+      const s1 = document.getElementById('newExSecondary1');
+      const s2 = document.getElementById('newExSecondary2');
+      [s1, s2].forEach(sel => {
+        if (sel) sel.innerHTML = '<option value="">— none —</option>' + MUSCLES.map(o => '<option value="' + esc(o) + '">' + esc(o) + '</option>').join('');
+      });
+      const ty = document.getElementById('newExType');
+      if (ty) ty.innerHTML = EXERCISE_TYPES.map(o => '<option value="' + o + '">' + esc(typeLabel(o)) + '</option>').join('');
+    }
+
+    function openCustomExModal(editId) {
+      editingExId = (typeof editId === 'string' && editId) ? editId : null;
+      fillCustomExSelects();
+      const ex = editingExId ? state.exercises.find(e => e.id === editingExId) : null;
+      if (editingExId && !ex) editingExId = null;
+      document.getElementById('customExTitle').innerText = ex ? 'Edit Custom Exercise' : 'New Custom Exercise';
+      document.getElementById('newExName').value = ex ? ex.name : '';
+      document.getElementById('newExEquipment').value = (ex && ex.equipment) || 'Other';
+      document.getElementById('newExMuscle').value = (ex && exPrimary(ex)) || 'Chest';
+      document.getElementById('newExSecondary1').value = (ex && ex.secondary && ex.secondary[0]) || '';
+      document.getElementById('newExSecondary2').value = (ex && ex.secondary && ex.secondary[1]) || '';
+      document.getElementById('newExType').value = (ex && ex.type) || 'weight_reps';
       document.getElementById('customExModal').classList.add('open');
     }
 
     function saveCustomExercise() {
       const name = document.getElementById('newExName').value.trim();
-      const muscle = document.getElementById('newExMuscle').value;
-      if (!name) return;
-      state.exercises.unshift({ id: 'ex_' + Date.now(), name, muscle });
+      let equipment = document.getElementById('newExEquipment').value;
+      let primary = document.getElementById('newExMuscle').value;
+      const s1 = document.getElementById('newExSecondary1').value;
+      const s2 = document.getElementById('newExSecondary2').value;
+      let type = document.getElementById('newExType').value;
+      if (!name) return false;
+      if (EQUIPMENT.indexOf(equipment) < 0) equipment = 'Other';
+      if (MUSCLES.indexOf(primary) < 0) primary = 'Chest';
+      const secondary = [s1, s2].filter((s, i, arr) => s && s !== primary && MUSCLES.indexOf(s) >= 0 && arr.indexOf(s) === i).slice(0, 2);
+      if (EXERCISE_TYPES.indexOf(type) < 0) type = 'weight_reps';
+      if (editingExId) {
+        const ex = state.exercises.find(e => e.id === editingExId);
+        if (!ex) return false;
+        ex.name = name;
+        ex.equipment = equipment;
+        ex.primary = primary;
+        ex.muscle = primary;
+        ex.secondary = secondary;
+        ex.type = type;
+      } else {
+        state.exercises.unshift({ id: 'ex_' + Date.now(), name, equipment, muscle: primary, primary, secondary, type, custom: true, fav: false, hidden: false });
+      }
+      editingExId = null;
       saveState();
       renderExercisesTab();
       closeModal('customExModal');
+      return true;
+    }
+
+    /* Delete a custom exercise. When it is used in history or a routine it is
+       hidden instead (stays resolvable by name) and the notice says where. */
+    function deleteExercise(exId) {
+      const idx = state.exercises.findIndex(e => e.id === exId);
+      if (idx < 0) return false;
+      const ex = state.exercises[idx];
+      if (!ex.custom && BUILTIN_EXERCISE_IDS[exId]) {
+        alert('Built-in exercises cannot be deleted.');
+        return false;
+      }
+      let wCount = 0;
+      const rtNames = [];
+      state.history.forEach(w => {
+        if ((w.exercises || []).some(item => item && item.exId === exId)) wCount++;
+      });
+      state.routines.forEach(rt => {
+        if ((rt.exercises || []).some(item => item && item.exId === exId)) rtNames.push(rt.name);
+      });
+      if (wCount > 0 || rtNames.length > 0) {
+        ex.hidden = true;
+        saveState();
+        renderExercisesTab();
+        if (detailExId === exId) renderExerciseDetail();
+        const parts = [];
+        if (wCount > 0) parts.push(wCount + (wCount === 1 ? ' workout' : ' workouts'));
+        if (rtNames.length > 0) parts.push('routine "' + rtNames.join('", "') + '"');
+        alert('"' + ex.name + '" is used in ' + parts.join(' and ') + ', so it was hidden instead of deleted. Unhide it from Exercises (Show hidden).');
+        return 'hidden';
+      }
+      state.exercises.splice(idx, 1);
+      saveState();
+      renderExercisesTab();
+      closeModal('exDetailModal');
+      return true;
+    }
+
+    function unhideExercise(exId) {
+      const ex = state.exercises.find(e => e.id === exId);
+      if (!ex) return false;
+      ex.hidden = false;
+      saveState();
+      renderExercisesTab();
+      if (detailExId === exId) renderExerciseDetail();
+      return true;
+    }
+
+    /* Best performed set (max weight × reps) for the detail sheet. */
+    function getBestSet(exId) {
+      let best = null;
+      state.history.forEach(w => {
+        (w.exercises || []).forEach(item => {
+          if (!item || item.exId !== exId) return;
+          (item.sets || []).forEach(s => {
+            const score = (Number(s.weight) || 0) * (Number(s.reps) || 0);
+            if (!best || score > best.score) best = { weight: Number(s.weight) || 0, reps: Number(s.reps) || 0, score };
+          });
+        });
+      });
+      return best;
+    }
+
+    /* Last 5 sessions holding this exercise (history is newest-first). */
+    function getExerciseHistory(exId) {
+      const out = [];
+      state.history.forEach(w => {
+        if (out.length >= 5) return;
+        const found = (w.exercises || []).find(item => item && item.exId === exId);
+        if (!found || !Array.isArray(found.sets) || found.sets.length === 0) return;
+        const best = found.sets.reduce((acc, s) => ((Number(s.weight) || 0) * (Number(s.reps) || 0) > (Number(acc.weight) || 0) * (Number(acc.reps) || 0) ? s : acc), found.sets[0]);
+        out.push({ date: w.date, bestWeight: Number(best.weight) || 0, bestReps: Number(best.reps) || 0, sets: found.sets.length });
+      });
+      return out;
+    }
+
+    function openExerciseDetail(exId) {
+      detailExId = exId;
+      renderExerciseDetail();
+      document.getElementById('exDetailModal').classList.add('open');
+    }
+
+    function renderExerciseDetail() {
+      const body = document.getElementById('exDetailBody');
+      const ex = state.exercises.find(e => e.id === detailExId);
+      if (!ex) {
+        body.innerHTML = '<div class="card">Exercise not found.</div>';
+        return;
+      }
+      const best = getBestSet(ex.id);
+      const est = getBest1RM(ex.id);
+      const bestStr = best ? formatDisplayWeight(best.weight) + ' ' + state.unit + ' × ' + best.reps : '—';
+      const estStr = est > 0 ? formatDisplayWeight(est) + ' ' + state.unit + ' (est.)' : '—';
+      const secs = (ex.secondary || []).map(esc).join(', ') || '—';
+      const hist = getExerciseHistory(ex.id);
+      const histHtml = hist.length === 0
+        ? '<div style="font-size:13px; color:var(--text-sub);">No logged sessions yet.</div>'
+        : hist.map(h => '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border);"><span>' + esc(new Date(h.date).toLocaleDateString()) + '</span><span style="color:var(--text-sub);">Best: ' + esc(formatDisplayWeight(h.bestWeight)) + ' ' + state.unit + ' × ' + h.bestReps + ' (' + h.sets + ' sets)</span></div>').join('');
+      const canEdit = !!ex.custom;
+      body.innerHTML = `
+        <div style="font-weight:800; font-size:18px; margin-bottom:6px;">${esc(ex.name)}</div>
+        <div style="margin-bottom:10px;">${exerciseBadgesHtml(ex)}${ex.custom ? ' <span class="badge">custom</span>' : ''}${ex.hidden ? ' <span class="badge">hidden</span>' : ''}</div>
+        <div style="font-size:14px; margin-bottom:4px;">Primary: <b>${esc(exPrimary(ex))}</b></div>
+        <div style="font-size:14px; margin-bottom:10px;">Secondary: <b>${secs}</b></div>
+        <div style="font-size:14px; margin-bottom:4px;">Best set: <b>${esc(bestStr)}</b></div>
+        <div style="font-size:14px; margin-bottom:10px;">Est. 1RM: <b>${esc(estStr)}</b></div>
+        <h3>Last ${hist.length} session${hist.length === 1 ? '' : 's'}</h3>
+        ${histHtml}
+        <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+          <button class="btn" style="flex:1; min-height:48px;" onclick="toggleFav('${ex.id}')">${ex.fav ? '★ Unfavourite' : '☆ Favourite'}</button>
+          ${canEdit ? `<button class="btn" style="flex:1; min-height:48px;" onclick="openCustomExModal('${ex.id}')">✏️ Edit</button>` : ''}
+          ${canEdit && !ex.hidden ? `<button class="btn btn-danger" style="flex:1; min-height:48px;" onclick="deleteExercise('${ex.id}')">🗑️ Delete</button>` : ''}
+          ${ex.hidden ? `<button class="btn" style="flex:1; min-height:48px;" onclick="unhideExercise('${ex.id}')">Unhide</button>` : ''}
+        </div>
+      `;
     }
 
     /* HISTORY FEED */
@@ -2564,7 +3181,7 @@
             : '';
           return `
             <div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0;">
-              <span><b>${item.sets.length} ×</b> ${ex.name} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
+              <span><b>${item.sets.length} ×</b> ${esc(ex.name)} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
               <span style="color:var(--text-sub);">Best: ${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}</span>
             </div>
             ${noteLine}
@@ -2610,12 +3227,18 @@
       const plEl = document.getElementById('platePlatesLbInput');
       if (plEl) plEl.value = ps.platesLb.join(', ');
 
+      /* P2-06: the chart keeps its six buckets; new primaries fold into the
+         legacy buckets (Biceps/Triceps/Forearms -> Arms, Quads/Hamstrings/
+         Glutes/Calves -> Legs). Full body is not charted. */
       const counts = { Chest: 0, Back: 0, Legs: 0, Shoulders: 0, Arms: 0, Core: 0 };
+      const MUSCLE_BUCKETS = { Biceps: 'Arms', Triceps: 'Arms', Forearms: 'Arms', Quads: 'Legs', Hamstrings: 'Legs', Glutes: 'Legs', Calves: 'Legs' };
       state.history.forEach(w => {
         w.exercises.forEach(item => {
           const ex = state.exercises.find(e => e.id === item.exId);
-          if (ex && counts[ex.muscle] !== undefined) {
-            counts[ex.muscle] += item.sets.length;
+          if (!ex) return;
+          const bucket = MUSCLE_BUCKETS[exPrimary(ex)] || exPrimary(ex);
+          if (counts[bucket] !== undefined) {
+            counts[bucket] += item.sets.length;
           }
         });
       });
@@ -2830,6 +3453,7 @@
         return { ok: false, error: 'Invalid unit in backup (expected "KG" or "LBS"). Nothing was changed.' };
       }
       const data = migrateParsedStateToV2(cloneForRestore(input));
+      normalizeExercises(data, true);
       if (!Array.isArray(data.history)) data.history = [];
       if (!Array.isArray(data.routines)) data.routines = [];
       if (!Array.isArray(data.exercises)) data.exercises = [];
@@ -2997,6 +3621,7 @@
       }
       state = pendingRestore;
       pendingRestore = null;
+      normalizeExercises(state);
       if (!state.unit) state.unit = 'KG';
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       saveState();
@@ -3031,6 +3656,7 @@
         return;
       }
       state = saved;
+      normalizeExercises(state);
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       try {
         // Write back the exact snapshot string so undo restores data byte-for-byte.
