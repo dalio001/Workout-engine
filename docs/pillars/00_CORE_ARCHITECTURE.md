@@ -33,6 +33,7 @@ Recovery/resume prompt, save/sync indicator, import preview, conflict-resolution
 - [x] **Source inspected:** JSON export/import exists; import replaces state before validation and has no preview or transactional rollback.
 - [x] **Environment audited:** `main`; no package manifest, linter, test runner, build step or CI. This does not establish production readiness.
 - [x] **Documentation updated:** Personal-first priorities and publication checks prepared for the user-authorized GitHub integration; app source preserved.
+- [x] **Agent preferences recorded:** AGENTS.md explicitly sets the default pillar order to 0 → 2 → 1 → 5, supporting basics from 4/6, and allows the user's later direction to activate public-product scope.
 
 ## What is left to do `[ ]`
 

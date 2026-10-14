@@ -2,6 +2,12 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — Explicit owner preferences in the agent contract
+
+- Added a durable AGENTS.md preference section: personal use first; default next-task order 0 → 2 → 1 → 5; basic protections/settings from 4/6; community, coaching, billing and public growth deferred.
+- Recorded that the owner's latest direction can change these defaults, including a future public release, with matching updates to governance and the master plan. Documentation changes do not authorize app implementation.
+- Synchronized Pillar 0's governance record and prepared the user-authorized GitHub merge. Application code and README remain unchanged.
+
 ## 2026-10-14 — Personal-use priorities and authorized GitHub integration
 
 - Updated the active roadmap to prioritize personal use: pillars 0/2/1/5, with minimum trust and settings from 4/6. Community/coaching, public growth, billing and unnecessary accounts/sync are deferred; the larger public vision is retained as optional reference.

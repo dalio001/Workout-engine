@@ -8,6 +8,25 @@ The 2026-10-14 request authorizes inspection, competitor research, a roadmap, pi
 
 The user subsequently authorized committing, pushing and merging these documents into the GitHub repository. This authorizes documentation publication, not feature implementation. The user also clarified that **personal use is the current scope**. Follow the personal-use sequence in the master plan; public beta, community, coaching, billing and growth are optional future scope, not current requirements.
 
+## User preferences and default pillar priorities
+
+**The owner wants to use this app personally first.** Treat it as a useful tracker for their own workouts, routines and progress. The larger public-product roadmap is an option for later, not the default scope.
+
+When the user asks what to work on next, or requests app improvements without naming a pillar, use this order and choose the next ready task:
+
+1. **Pillar 0 — Reliable data:** prevent lost sessions, preserve weight/unit meaning, provide safe backups/imports and recovery.
+2. **Pillar 2 — Personal workout workflow:** improve the owner's routines, set logging, previous performance and rest timers; curate the exercises they actually use.
+3. **Pillar 1 — Everyday usability:** make those workflows comfortable and accessible on the owner's phone.
+4. **Pillar 5 — Personal progress:** add accurate history, records, simple trends and a training calendar after the underlying data is reliable.
+
+Apply **Pillar 4's relevant security/import/timer protections** and **Pillar 6's basic unit/rest/display preferences** as supporting work. Respect task dependencies: metric and unit definitions may need to be resolved early even though progress features come later.
+
+Defer **Pillar 3 community/coaching**, **Pillar 7 public growth/marketing**, and **Pillar 6 billing/subscriptions**. Do not make accounts, a backend, cloud sync, a native rewrite, public-user research or large catalogues prerequisites for personal use. Introduce them only when a requested personal capability actually needs them or the user changes scope.
+
+**These are defaults, not permanent restrictions.** The user's latest explicit direction takes precedence. If they decide to invite other users or make the app public, adapt the scope, reactivate the relevant deferred pillars, and update this preference section and the master plan to match the new direction. Preserve the personal-use workflows and existing data as the product expands. Do not repeatedly ask the user to reconfirm a direction they have already authorized.
+
+Before starting a task, read this section, the current master-plan scope and the owning pillar. A request to update documentation does not authorize implementing features; a later request to implement a defined improvement can authorize that work.
+
 ## graphify
 
 - Use the installed graphify skill when the user types `/graphify`.
