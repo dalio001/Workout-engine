@@ -485,7 +485,8 @@
     </div>
 
     <div class="workout-scroll">
-      <input type="text" id="activeWorkoutTitle" class="input-field" style="font-size:18px; font-weight:800;" placeholder="Workout Name">
+      <div id="draftSaveWarning" style="display:none; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.5); color:#fca5a5; font-size:13px; font-weight:700; padding:8px 12px; border-radius:10px; margin-bottom:10px;">⚠️ Could not save draft — storage full or blocked. Keep this screen open until you finish.</div>
+      <input type="text" id="activeWorkoutTitle" class="input-field" style="font-size:18px; font-weight:800;" placeholder="Workout Name" oninput="onWorkoutTitleInput(this.value)">
       <div id="activeExercisesContainer"></div>
 
       <button class="btn btn-primary btn-block" style="margin-top:12px;" onclick="openExercisePicker('workout')">➕ Add Exercise</button>
@@ -560,6 +561,20 @@
     </div>
   </div>
 
+  <!-- RESUME / DISCARD DRAFT MODAL (P0-02, reuses .modal style) -->
+  <div class="modal" id="resumeModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="resumeModalTitle">Unfinished workout found</span>
+      </div>
+      <div class="modal-body">
+        <div id="resumeModalDesc" style="font-size:14px; color:var(--text-sub); margin-bottom:14px;">You have an unfinished workout saved on this device.</div>
+        <button class="btn btn-primary btn-block" id="resumeModalResumeBtn" onclick="resumeSavedWorkout()">Resume workout</button>
+        <button class="btn btn-danger btn-block" id="resumeModalDiscardBtn" style="margin-top:10px;" onclick="discardSavedDraft()">Discard</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     /* DEFAULT EXERCISES & ROUTINES */
     const DEFAULT_EXERCISES = [
@@ -628,8 +643,11 @@
     let workoutInterval = null;
     let restInterval = null;
     let restRemaining = 0;
+    let restDeadline = null;
     let pickerTarget = 'workout';
     let tempRoutineExercises = [];
+    const ACTIVE_SESSION_KEY = 'hevy_clone_active_session';
+    let pendingStartFn = null;
 
     /* INITIALIZATION */
     function init() {
@@ -648,6 +666,154 @@
       renderHistory();
       renderExercisesTab();
       renderProfileStats();
+
+      const draft = loadActiveSessionDraft();
+      if (draft) showResumeModal('load');
+    }
+
+    /* P0-02: DURABLE LIVE SESSION (key hevy_clone_active_session; hevy_clone_state untouched) */
+    function showDraftSaveWarning() {
+      const el = document.getElementById('draftSaveWarning');
+      if (el) el.style.display = 'block';
+    }
+
+    function hideDraftSaveWarning() {
+      const el = document.getElementById('draftSaveWarning');
+      if (el) el.style.display = 'none';
+    }
+
+    function saveActiveSession() {
+      if (!activeWorkout) return;
+      const draft = {
+        title: activeWorkout.title,
+        startTime: activeWorkout.startTime,
+        exercises: activeWorkout.exercises,
+        restDeadline: restDeadline
+      };
+      try {
+        localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(draft));
+        hideDraftSaveWarning();
+      } catch (e) {
+        showDraftSaveWarning();
+      }
+    }
+
+    function clearActiveSessionStorage() {
+      try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) {}
+    }
+
+    function loadActiveSessionDraft() {
+      let raw = null;
+      try { raw = localStorage.getItem(ACTIVE_SESSION_KEY); } catch (e) { return null; }
+      if (!raw) return null;
+      try {
+        const d = JSON.parse(raw);
+        if (!d || typeof d.startTime !== 'number' || !Array.isArray(d.exercises)) {
+          clearActiveSessionStorage();
+          return null;
+        }
+        return d;
+      } catch (e) {
+        clearActiveSessionStorage();
+        return null;
+      }
+    }
+
+    function showResumeModal(mode) {
+      const title = document.getElementById('resumeModalTitle');
+      const desc = document.getElementById('resumeModalDesc');
+      const resumeBtn = document.getElementById('resumeModalResumeBtn');
+      const discardBtn = document.getElementById('resumeModalDiscardBtn');
+      if (mode === 'start-new') {
+        title.innerText = 'Workout in progress';
+        desc.innerText = 'You already have a workout in progress. Resume it, or discard it and start a new one?';
+        resumeBtn.innerText = 'Resume current';
+        discardBtn.innerText = 'Discard and start new';
+      } else {
+        title.innerText = 'Unfinished workout found';
+        desc.innerText = 'You have an unfinished workout saved on this device.';
+        resumeBtn.innerText = 'Resume workout';
+        discardBtn.innerText = 'Discard';
+      }
+      document.getElementById('resumeModal').classList.add('open');
+    }
+
+    function restoreDraftToActive(draft) {
+      activeWorkout = {
+        title: draft.title || 'Workout',
+        startTime: draft.startTime,
+        exercises: draft.exercises,
+        finishing: false
+      };
+      restDeadline = (typeof draft.restDeadline === 'number' && draft.restDeadline > Date.now()) ? draft.restDeadline : null;
+      restRemaining = restDeadline ? Math.max(0, Math.ceil((restDeadline - Date.now()) / 1000)) : 0;
+      document.getElementById('activeWorkoutTitle').value = activeWorkout.title;
+      document.getElementById('activeWorkoutDrawer').classList.add('open');
+      document.getElementById('minimizedWorkoutBar').style.display = 'none';
+      renderActiveWorkout();
+      clearInterval(workoutInterval);
+      workoutInterval = setInterval(updateElapsedTimer, 1000);
+      updateElapsedTimer();
+      if (restDeadline) {
+        document.getElementById('restTimerBar').classList.add('active');
+        updateRestDisplay();
+        clearInterval(restInterval);
+        restInterval = setInterval(tickRestTimer, 1000);
+      } else {
+        clearInterval(restInterval);
+        document.getElementById('restTimerBar').classList.remove('active');
+      }
+      saveActiveSession();
+    }
+
+    function resumeSavedWorkout() {
+      const draft = loadActiveSessionDraft();
+      document.getElementById('resumeModal').classList.remove('open');
+      if (pendingStartFn) {
+        const next = pendingStartFn;
+        pendingStartFn = null;
+        if (activeWorkout) {
+          document.getElementById('activeWorkoutDrawer').classList.add('open');
+          document.getElementById('minimizedWorkoutBar').style.display = 'none';
+          return;
+        }
+        if (!draft) return;
+        restoreDraftToActive(draft);
+        return;
+      }
+      if (!draft) return;
+      restoreDraftToActive(draft);
+    }
+
+    function discardSavedDraft() {
+      document.getElementById('resumeModal').classList.remove('open');
+      clearActiveSessionStorage();
+      const next = pendingStartFn;
+      pendingStartFn = null;
+      if (next) {
+        silentCleanupActiveWorkout();
+        next();
+        return;
+      }
+      silentCleanupActiveWorkout();
+    }
+
+    function silentCleanupActiveWorkout() {
+      activeWorkout = null;
+      restDeadline = null;
+      restRemaining = 0;
+      clearInterval(workoutInterval);
+      clearInterval(restInterval);
+      const bar = document.getElementById('restTimerBar');
+      if (bar) bar.classList.remove('active');
+      document.getElementById('activeWorkoutDrawer').classList.remove('open');
+      document.getElementById('minimizedWorkoutBar').style.display = 'none';
+    }
+
+    function onWorkoutTitleInput(val) {
+      if (!activeWorkout) return;
+      activeWorkout.title = val;
+      saveActiveSession();
     }
 
     function saveState() {
@@ -761,21 +927,45 @@
 
     /* WORKOUT SESSION */
     function startEmptyWorkout() {
+      const hasSaved = !!loadActiveSessionDraft();
+      if (activeWorkout || hasSaved) {
+        pendingStartFn = doStartEmptyWorkout;
+        showResumeModal('start-new');
+        return;
+      }
+      doStartEmptyWorkout();
+    }
+
+    function doStartEmptyWorkout() {
       activeWorkout = {
         title: 'Workout',
         startTime: Date.now(),
-        exercises: []
+        exercises: [],
+        finishing: false
       };
+      restDeadline = null;
+      restRemaining = 0;
       openWorkoutDrawer();
     }
 
     function startRoutineWorkout(rtId) {
+      const hasSaved = !!loadActiveSessionDraft();
+      if (activeWorkout || hasSaved) {
+        pendingStartFn = () => doStartRoutineWorkout(rtId);
+        showResumeModal('start-new');
+        return;
+      }
+      doStartRoutineWorkout(rtId);
+    }
+
+    function doStartRoutineWorkout(rtId) {
       const rt = state.routines.find(r => r.id === rtId);
       if (!rt) return;
 
       activeWorkout = {
         title: rt.name,
         startTime: Date.now(),
+        finishing: false,
         exercises: rt.exercises.map(item => {
           const sets = [];
           for (let i = 0; i < item.sets; i++) {
@@ -798,6 +988,7 @@
       document.getElementById('activeWorkoutDrawer').classList.add('open');
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
       renderActiveWorkout();
+      saveActiveSession();
 
       clearInterval(workoutInterval);
       workoutInterval = setInterval(updateElapsedTimer, 1000);
@@ -874,6 +1065,7 @@
         `;
         container.appendChild(block);
       });
+      saveActiveSession();
     }
 
     function cycleSetType(exIdx, sIdx) {
@@ -882,16 +1074,19 @@
       const next = order[(order.indexOf(cur) + 1) % order.length];
       activeWorkout.exercises[exIdx].sets[sIdx].type = next;
       renderActiveWorkout();
+      saveActiveSession();
     }
 
     function updateSetVal(exIdx, sIdx, field, val) {
       activeWorkout.exercises[exIdx].sets[sIdx][field] = parseFloat(val) || 0;
+      saveActiveSession();
     }
 
     function toggleSetDone(exIdx, sIdx) {
       const s = activeWorkout.exercises[exIdx].sets[sIdx];
       s.done = !s.done;
       renderActiveWorkout();
+      saveActiveSession();
       if (s.done) startRestTimer(state.defaultRest || 90);
     }
 
@@ -900,38 +1095,53 @@
       const last = sets[sets.length - 1] || { weight: '', reps: '' };
       sets.push({ type: 'N', weight: last.weight, reps: last.reps, done: false });
       renderActiveWorkout();
+      saveActiveSession();
     }
 
     function removeActiveEx(exIdx) {
       activeWorkout.exercises.splice(exIdx, 1);
       renderActiveWorkout();
+      saveActiveSession();
     }
 
     /* REST TIMER & AUDIO BEEP */
     function startRestTimer(seconds) {
+      restDeadline = Date.now() + seconds * 1000;
       restRemaining = seconds;
       document.getElementById('restTimerBar').classList.add('active');
       updateRestDisplay();
       clearInterval(restInterval);
-      restInterval = setInterval(() => {
-        restRemaining--;
-        if (restRemaining <= 0) {
-          playBeep();
-          stopRestTimer();
-        } else {
-          updateRestDisplay();
-        }
-      }, 1000);
+      restInterval = setInterval(tickRestTimer, 1000);
+      saveActiveSession();
+    }
+
+    function tickRestTimer() {
+      if (restDeadline == null) { stopRestTimer(); return; }
+      restRemaining = Math.max(0, Math.ceil((restDeadline - Date.now()) / 1000));
+      if (restRemaining <= 0) {
+        playBeep();
+        stopRestTimer();
+        saveActiveSession();
+      } else {
+        updateRestDisplay();
+      }
     }
 
     function adjustRest(delta) {
-      restRemaining = Math.max(0, restRemaining + delta);
-      updateRestDisplay();
+      if (restDeadline == null) return;
+      restDeadline = Math.max(Date.now(), restDeadline + delta * 1000);
+      restRemaining = Math.max(0, Math.ceil((restDeadline - Date.now()) / 1000));
+      if (restRemaining <= 0) { stopRestTimer(); }
+      else { updateRestDisplay(); }
+      saveActiveSession();
     }
 
     function stopRestTimer() {
       clearInterval(restInterval);
+      restDeadline = null;
+      restRemaining = 0;
       document.getElementById('restTimerBar').classList.remove('active');
+      if (activeWorkout) saveActiveSession();
     }
 
     function updateRestDisplay() {
@@ -956,6 +1166,7 @@
 
     /* FINISH OR DISCARD WORKOUT */
     function finishWorkout() {
+      if (!activeWorkout || activeWorkout.finishing) return;
       const completedExercises = activeWorkout.exercises.map(ex => ({
         exId: ex.exId,
         sets: ex.sets.filter(s => s.done && s.reps > 0)
@@ -965,6 +1176,7 @@
         alert('Complete at least one set (tap ✓) before finishing!');
         return;
       }
+      activeWorkout.finishing = true;
 
       const durationSec = Math.floor((Date.now() - activeWorkout.startTime) / 1000);
       let totalVolume = 0;
@@ -1000,6 +1212,7 @@
       });
 
       saveState();
+      clearActiveSessionStorage();
       cleanupActiveWorkout();
       renderHistory();
       renderProfileStats();
@@ -1008,13 +1221,19 @@
 
     function discardWorkout() {
       if (!confirm('Discard current workout?')) return;
+      clearActiveSessionStorage();
       cleanupActiveWorkout();
     }
 
     function cleanupActiveWorkout() {
+      const bar = document.getElementById('restTimerBar');
       activeWorkout = null;
+      restDeadline = null;
+      restRemaining = 0;
       clearInterval(workoutInterval);
-      stopRestTimer();
+      clearInterval(restInterval);
+      if (bar) bar.classList.remove('active');
+      clearActiveSessionStorage();
       document.getElementById('activeWorkoutDrawer').classList.remove('open');
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
     }
@@ -1065,6 +1284,7 @@
           sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
         });
         renderActiveWorkout();
+        saveActiveSession();
       } else if (pickerTarget === 'routine') {
         tempRoutineExercises.push({ exId, sets: 3 });
         renderRoutineBuilderList();

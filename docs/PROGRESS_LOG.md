@@ -2,6 +2,12 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — P0-02 live-session recovery implemented, awaiting owner device check
+
+- Implemented P0-02 exactly as `docs/pillars/plans/P0-02/PLAN.md` in `index.html` only: live workout persisted to `hevy_clone_active_session` on every change (start, set edit, tick, add/remove set or exercise, set type, title edit, rest start/stop/adjust); rest stored as end-timestamp `restDeadline`.
+- Added Resume/Discard modal reusing `.modal` style on page load and for start-new conflicts (Resume current / Discard and start new); Discard removes the draft with no further prompt and no history entry. Finish and Discard both clear the draft; double-Finish guarded by a `finishing` flag so exactly one history entry is created. Storage-save failure shows a visible `#draftSaveWarning` banner in the workout drawer. `hevy_clone_state` key and history format unchanged.
+- Checks: `node --check` on extracted `<script>` passed with no output; `git diff --stat` shows only `index.html` and docs. No browser run here (supervisor tests on device); P0-02 stays `[ ] in progress`, not `[x]`.
+
 ## 2026-10-14 — Feature-level video handoff and second review
 
 - Watched V2 through full captions and 48 overview frames, then inspected 44 focused timestamps; checked 20 additional V1 timestamps, including the resume/replace prompt. Recorded source metadata and feature-level scene links in the video index.
