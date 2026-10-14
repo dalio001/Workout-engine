@@ -440,6 +440,11 @@
           <button class="btn" style="flex:1;" onclick="document.getElementById('importInput').click()">📥 Restore JSON</button>
           <input type="file" id="importInput" accept=".json" style="display:none" onchange="importData(event)">
         </div>
+        <div id="restoreDoneBanner" style="display:none; margin-top:10px; padding:10px 12px; border-radius:10px; background:var(--success-bg); border:1px solid rgba(16,185,129,0.4); font-size:14px; font-weight:700; align-items:center; justify-content:space-between; gap:8px;">
+          <span>✅ Restored.</span>
+          <button class="btn" style="padding:6px 12px; font-size:13px;" onclick="undoLastRestore()">Undo</button>
+        </div>
+        <button class="btn btn-block" id="undoRestoreBtn" style="display:none; margin-top:10px;" onclick="undoLastRestore()">↩️ Undo last restore</button>
       </div>
     </section>
   </main>
@@ -574,6 +579,26 @@
         <div id="resumeModalDesc" style="font-size:14px; color:var(--text-sub); margin-bottom:14px;">You have an unfinished workout saved on this device.</div>
         <button class="btn btn-primary btn-block" id="resumeModalResumeBtn" onclick="resumeSavedWorkout()">Resume workout</button>
         <button class="btn btn-danger btn-block" id="resumeModalDiscardBtn" style="margin-top:10px;" onclick="discardSavedDraft()">Discard</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SAFE RESTORE PREVIEW (P0-03 + P4-01, reuses .modal style) -->
+  <div class="modal" id="restoreModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Restore this backup?</span>
+        <button class="btn" onclick="cancelRestore()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="restorePreviewText" style="font-size:14px; line-height:1.6; margin-bottom:12px;"></div>
+        <div id="restoreDraftChoice" style="display:none; margin-bottom:12px; padding:10px 12px; border:1px solid var(--border); border-radius:10px;">
+          <div style="font-weight:700; font-size:14px; margin-bottom:8px;">Unfinished workout on this phone</div>
+          <label style="display:block; font-size:14px; margin-bottom:6px;"><input type="radio" name="restoreDraft" value="keep" checked> Keep it (resume later)</label>
+          <label style="display:block; font-size:14px;"><input type="radio" name="restoreDraft" value="discard"> Discard it</label>
+        </div>
+        <button class="btn btn-primary btn-block" onclick="confirmRestore()">Restore</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="cancelRestore()">Cancel</button>
       </div>
     </div>
   </div>
@@ -757,6 +782,7 @@
     /* INITIALIZATION */
     function init() {
       const saved = localStorage.getItem('hevy_clone_state');
+      const hadSavedState = saved != null;
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
@@ -779,9 +805,9 @@
           }
         } catch(e) {}
       }
-      if (!state.exercises || state.exercises.length === 0) state.exercises = DEFAULT_EXERCISES;
-      if (!state.routines || state.routines.length === 0) state.routines = DEFAULT_ROUTINES;
-      if (!state.history) state.history = [];
+      // P0-03: seed defaults ONLY on a true first run (no saved state at all).
+      // A saved state that intentionally holds an empty array keeps it empty.
+      applySeedDefaults(state, hadSavedState);
 
       document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
       document.getElementById('defaultRestInput').value = state.defaultRest || 90;
@@ -790,6 +816,7 @@
       renderHistory();
       renderExercisesTab();
       renderProfileStats();
+      refreshUndoRestoreUI();
 
       const draft = loadActiveSessionDraft();
       if (draft) showResumeModal('load');
@@ -1589,6 +1616,300 @@
       `;
     }
 
+    /* P0-03 + P4-01: SAFE RESTORE — validate before mutation, preview, undo.
+       Storage keys unchanged. Nothing here mutates state/storage until the
+       user confirms in the preview modal. */
+    const BEFORE_RESTORE_KEY = 'hevy_clone_state_before_restore';
+    const RESTORE_MAX_WEIGHT_KG = 1000;
+    const RESTORE_MAX_REPS = 1000;
+    let pendingRestore = null; // migrated, validated backup awaiting confirm
+    let restoreDoneThisSession = false; // session-only "Restored. Undo" banner
+
+    function isPlainObject(v) {
+      return !!v && typeof v === 'object' && !Array.isArray(v);
+    }
+
+    function cloneForRestore(v) {
+      return JSON.parse(JSON.stringify(v));
+    }
+
+    function restoreNum(v) {
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string' && v.trim() !== '') return Number(v);
+      return NaN;
+    }
+
+    // Seed defaults ONLY on a true first run (no saved state at all).
+    // A saved state that intentionally holds an empty array keeps it empty.
+    // Pure: mutates only the passed target, touches no globals or storage.
+    function applySeedDefaults(target, hadSavedState) {
+      if (!target || typeof target !== 'object') return target;
+      if (!hadSavedState) {
+        if (!Array.isArray(target.exercises) || target.exercises.length === 0) {
+          target.exercises = cloneForRestore(DEFAULT_EXERCISES);
+        }
+        if (!Array.isArray(target.routines) || target.routines.length === 0) {
+          target.routines = cloneForRestore(DEFAULT_ROUTINES);
+        }
+      } else {
+        if (!Array.isArray(target.exercises)) target.exercises = [];
+        if (!Array.isArray(target.routines)) target.routines = [];
+      }
+      if (!Array.isArray(target.history)) target.history = [];
+      return target;
+    }
+
+    // Pure validation: checks a parsed JSON backup WITHOUT mutating app
+    // state. The schemaVersion migration runs on a COPY. Returns
+    // { ok:true, data, summary } or { ok:false, error }.
+    function validateBackupData(input) {
+      if (!isPlainObject(input)) return { ok: false, error: 'This file is not a PLZ FitZone backup.' };
+      const hasHistory = 'history' in input;
+      const hasRoutines = 'routines' in input;
+      const hasExercises = 'exercises' in input;
+      if (!hasHistory && !hasRoutines && !hasExercises) {
+        return { ok: false, error: 'This file is not a PLZ FitZone backup.' };
+      }
+      const arrayKeys = ['history', 'routines', 'exercises'];
+      for (let ai = 0; ai < arrayKeys.length; ai++) {
+        const k = arrayKeys[ai];
+        if ((k in input) && input[k] !== undefined && !Array.isArray(input[k])) {
+          return { ok: false, error: 'This file is not a PLZ FitZone backup: "' + k + '" must be an array.' };
+        }
+      }
+      if ('schemaVersion' in input && input.schemaVersion !== undefined &&
+          input.schemaVersion !== 1 && input.schemaVersion !== 2) {
+        return { ok: false, error: 'Unsupported backup version (' + String(input.schemaVersion) + '). Nothing was changed.' };
+      }
+      if ('unit' in input && input.unit !== undefined && input.unit !== 'KG' && input.unit !== 'LBS') {
+        return { ok: false, error: 'Invalid unit in backup (expected "KG" or "LBS"). Nothing was changed.' };
+      }
+      const data = migrateParsedStateToV2(cloneForRestore(input));
+      if (!Array.isArray(data.history)) data.history = [];
+      if (!Array.isArray(data.routines)) data.routines = [];
+      if (!Array.isArray(data.exercises)) data.exercises = [];
+      if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
+
+      const seenEx = {};
+      for (let i = 0; i < data.exercises.length; i++) {
+        const ex = data.exercises[i];
+        if (!isPlainObject(ex) || typeof ex.id !== 'string' || ex.id.trim() === '' ||
+            typeof ex.name !== 'string' || ex.name.trim() === '') {
+          return { ok: false, error: 'Invalid exercise at index ' + i + ' (each exercise needs an id and a name). Nothing was changed.' };
+        }
+        if (seenEx[ex.id]) return { ok: false, error: 'Duplicate exercise id "' + ex.id + '". Nothing was changed.' };
+        seenEx[ex.id] = true;
+      }
+
+      const unknownRefs = [];
+      const noteUnknown = function (id) {
+        if (unknownRefs.indexOf(id) === -1) unknownRefs.push(id);
+      };
+      for (let i = 0; i < data.routines.length; i++) {
+        const rt = data.routines[i];
+        if (!isPlainObject(rt) || typeof rt.id !== 'string' || rt.id.trim() === '' || !Array.isArray(rt.exercises)) {
+          return { ok: false, error: 'Invalid routine at index ' + i + ' (each routine needs an id and an exercises array). Nothing was changed.' };
+        }
+        for (let j = 0; j < rt.exercises.length; j++) {
+          const item = rt.exercises[j];
+          if (!isPlainObject(item) || typeof item.exId !== 'string' || item.exId.trim() === '') {
+            return { ok: false, error: 'Invalid exercise entry in routine "' + rt.id + '" (index ' + j + '). Nothing was changed.' };
+          }
+          const n = restoreNum(item.sets);
+          if (!isFinite(n) || Math.floor(n) !== n || n < 1 || n > 1000) {
+            return { ok: false, error: 'Invalid set count for exercise "' + item.exId + '" in routine "' + rt.id + '" (expected a whole number 1-1000). Nothing was changed.' };
+          }
+          if (!seenEx[item.exId]) noteUnknown(item.exId);
+        }
+      }
+
+      let minDate = null;
+      let maxDate = null;
+      for (let i = 0; i < data.history.length; i++) {
+        const w = data.history[i];
+        if (!isPlainObject(w) || (typeof w.id !== 'string' && typeof w.id !== 'number') || String(w.id).trim() === '') {
+          return { ok: false, error: 'Invalid workout at index ' + i + ' (each workout needs an id and a date). Nothing was changed.' };
+        }
+        const d = restoreNum(w.date);
+        if (!isFinite(d) || d <= 0) {
+          return { ok: false, error: 'Invalid date in workout "' + String(w.id) + '" (expected a timestamp). Nothing was changed.' };
+        }
+        if (!Array.isArray(w.exercises) || w.exercises.length === 0) {
+          return { ok: false, error: 'Invalid exercises in workout "' + String(w.id) + '" (expected a non-empty array). Nothing was changed.' };
+        }
+        for (let j = 0; j < w.exercises.length; j++) {
+          const item = w.exercises[j];
+          if (!isPlainObject(item) || typeof item.exId !== 'string' || item.exId.trim() === '') {
+            return { ok: false, error: 'Invalid exercise entry in workout "' + String(w.id) + '" (index ' + j + '). Nothing was changed.' };
+          }
+          if (!seenEx[item.exId]) noteUnknown(item.exId);
+          if (!Array.isArray(item.sets) || item.sets.length === 0) {
+            return { ok: false, error: 'Invalid sets for exercise "' + item.exId + '" in workout "' + String(w.id) + '". Nothing was changed.' };
+          }
+          for (let k = 0; k < item.sets.length; k++) {
+            const s = item.sets[k];
+            if (!isPlainObject(s)) {
+              return { ok: false, error: 'Invalid set #' + (k + 1) + ' for exercise "' + item.exId + '" in workout "' + String(w.id) + '". Nothing was changed.' };
+            }
+            const wt = restoreNum(s.weight);
+            const rp = restoreNum(s.reps);
+            if (!isFinite(wt)) {
+              return { ok: false, error: 'Invalid weight for exercise "' + item.exId + '" in workout "' + String(w.id) + '" (set #' + (k + 1) + '). Nothing was changed.' };
+            }
+            if (!isFinite(rp)) {
+              return { ok: false, error: 'Invalid reps for exercise "' + item.exId + '" in workout "' + String(w.id) + '" (set #' + (k + 1) + '). Nothing was changed.' };
+            }
+            if (wt < 0 || rp < 0) {
+              return { ok: false, error: 'Negative weight/reps for exercise "' + item.exId + '" in workout "' + String(w.id) + '" (set #' + (k + 1) + '). Nothing was changed.' };
+            }
+            if (wt > RESTORE_MAX_WEIGHT_KG) {
+              return { ok: false, error: 'Absurd weight (' + wt + ' kg) for exercise "' + item.exId + '" in workout "' + String(w.id) + '". Nothing was changed.' };
+            }
+            if (rp > RESTORE_MAX_REPS) {
+              return { ok: false, error: 'Absurd reps (' + rp + ') for exercise "' + item.exId + '" in workout "' + String(w.id) + '". Nothing was changed.' };
+            }
+          }
+        }
+        if (minDate === null || d < minDate) minDate = d;
+        if (maxDate === null || d > maxDate) maxDate = d;
+      }
+
+      if (unknownRefs.length > 0) {
+        return { ok: false, error: 'Unknown exercises referenced: ' + unknownRefs.join(', ') + '. The backup\'s exercise list does not include them. Nothing was changed.' };
+      }
+      return {
+        ok: true,
+        data: data,
+        summary: {
+          workouts: data.history.length,
+          routines: data.routines.length,
+          exercises: data.exercises.length,
+          unit: data.unit,
+          firstDate: minDate,
+          lastDate: maxDate
+        }
+      };
+    }
+
+    function describeRestoreSummary(summary) {
+      const wPart = summary.workouts === 1 ? '1 workout' : summary.workouts + ' workouts';
+      let range = '';
+      if (summary.workouts > 0 && summary.firstDate != null && summary.lastDate != null) {
+        const f = new Date(summary.firstDate).toLocaleDateString();
+        const l = new Date(summary.lastDate).toLocaleDateString();
+        range = ' (from ' + f + ' to ' + l + ')';
+      }
+      const rPart = summary.routines === 1 ? '1 routine' : summary.routines + ' routines';
+      const ePart = summary.exercises === 1 ? '1 exercise' : summary.exercises + ' exercises';
+      return 'Restore this backup? ' + wPart + range + ', ' + rPart + ', ' + ePart +
+        ', unit ' + summary.unit + '. This replaces what is on this phone now.';
+    }
+
+    function showRestorePreview(summary) {
+      // Text-only summary: backup content is rendered as data, never HTML.
+      document.getElementById('restorePreviewText').textContent = describeRestoreSummary(summary);
+      let hasDraft = false;
+      try { hasDraft = loadActiveSessionDraftRaw() != null; } catch (e) { hasDraft = false; }
+      document.getElementById('restoreDraftChoice').style.display = hasDraft ? '' : 'none';
+      const keep = document.querySelector('input[name="restoreDraft"][value="keep"]');
+      if (keep) keep.checked = true;
+      document.getElementById('restoreModal').classList.add('open');
+    }
+
+    function cancelRestore() {
+      pendingRestore = null;
+      closeModal('restoreModal');
+    }
+
+    function confirmRestore() {
+      if (!pendingRestore) { closeModal('restoreModal'); return; }
+      let snapshot;
+      try {
+        snapshot = JSON.stringify(state);
+      } catch (err) {
+        snapshot = null;
+      }
+      if (snapshot == null) {
+        alert('❌ Could not save an undo snapshot. Restore cancelled; nothing was changed.');
+        return;
+      }
+      try {
+        localStorage.setItem(BEFORE_RESTORE_KEY, snapshot);
+      } catch (err) {
+        alert('❌ Storage is unavailable, so no undo snapshot could be saved. Restore cancelled; nothing was changed.');
+        return;
+      }
+      let discardDraft = false;
+      try {
+        const choice = document.querySelector('input[name="restoreDraft"]:checked');
+        discardDraft = !!choice && choice.value === 'discard';
+      } catch (e) { discardDraft = false; }
+      if (discardDraft) {
+        clearActiveSessionStorage();
+        silentCleanupActiveWorkout();
+      }
+      state = pendingRestore;
+      pendingRestore = null;
+      if (!state.unit) state.unit = 'KG';
+      saveState();
+      closeModal('restoreModal');
+      restoreDoneThisSession = true;
+      document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
+      document.getElementById('defaultRestInput').value = state.defaultRest || 90;
+      renderRoutines();
+      renderHistory();
+      renderExercisesTab();
+      renderProfileStats();
+      refreshUndoRestoreUI();
+    }
+
+    function undoLastRestore() {
+      let raw = null;
+      try { raw = localStorage.getItem(BEFORE_RESTORE_KEY); } catch (err) { raw = null; }
+      if (!raw) {
+        alert('No restore to undo.');
+        refreshUndoRestoreUI();
+        return;
+      }
+      let saved;
+      try {
+        saved = JSON.parse(raw);
+      } catch (err) {
+        alert('❌ The saved pre-restore snapshot is unreadable; nothing was changed.');
+        return;
+      }
+      if (!isPlainObject(saved)) {
+        alert('❌ The saved pre-restore snapshot is invalid; nothing was changed.');
+        return;
+      }
+      state = saved;
+      try {
+        // Write back the exact snapshot string so undo restores data byte-for-byte.
+        localStorage.setItem('hevy_clone_state', raw);
+        localStorage.removeItem(BEFORE_RESTORE_KEY);
+      } catch (err) {
+        alert('❌ Storage is unavailable; nothing was changed.');
+        return;
+      }
+      restoreDoneThisSession = false;
+      document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
+      document.getElementById('defaultRestInput').value = state.defaultRest || 90;
+      renderRoutines();
+      renderHistory();
+      renderExercisesTab();
+      renderProfileStats();
+      refreshUndoRestoreUI();
+    }
+
+    function refreshUndoRestoreUI() {
+      let has = false;
+      try { has = localStorage.getItem(BEFORE_RESTORE_KEY) != null; } catch (err) { has = false; }
+      const btn = document.getElementById('undoRestoreBtn');
+      if (btn) btn.style.display = has ? '' : 'none';
+      const banner = document.getElementById('restoreDoneBanner');
+      if (banner) banner.style.display = (restoreDoneThisSession && has) ? 'flex' : 'none';
+    }
+
     /* MODAL & BACKUP HELPERS */
     function closeModal(id) {
       document.getElementById(id).classList.remove('open');
@@ -1607,16 +1928,26 @@
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
+        e.target.value = '';
+        let parsed;
         try {
-          const parsed = JSON.parse(ev.target.result);
-          migrateParsedStateToV2(parsed);
-          state = parsed;
-          saveState();
-          init();
-          alert('✅ Workout history & routines restored!');
-        } catch(err) {
-          alert('❌ Invalid backup file.');
+          parsed = JSON.parse(ev.target.result);
+        } catch (err) {
+          alert('❌ This file is not a PLZ FitZone backup. Nothing was changed.');
+          return;
         }
+        // Validate BEFORE changing anything; migration runs on a copy inside.
+        const result = validateBackupData(parsed);
+        if (!result.ok) {
+          alert('❌ ' + result.error);
+          return;
+        }
+        pendingRestore = result.data;
+        showRestorePreview(result.summary);
+      };
+      reader.onerror = () => {
+        e.target.value = '';
+        alert('❌ Could not read that file. Nothing was changed.');
       };
       reader.readAsText(file);
     }

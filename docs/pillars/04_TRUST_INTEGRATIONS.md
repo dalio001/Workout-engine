@@ -35,7 +35,7 @@ Import error/preview; audience selector; permission rationale; consent settings;
 
 | ID | Priority / phase | Task and dependencies | Acceptance criteria | Feature references |
 | --- | --- | --- | --- | --- |
-| P4-01 | P0 / B | Safe rendering and validation; P0 migration/P2 types | Names/notes rendered as data; strict import schemas, bounds and ID/reference checks before mutation; rejected input leaves original intact; URI/content boundaries documented; meaningful regression fixtures | [Clips / evidence](#p4-01-reference) |
+| P4-01 | P0 / B | [ ] in progress — personal part implemented 2026-10-14, awaiting owner phone check: Safe rendering and validation; P0 migration/P2 types | Names/notes rendered as data; strict import schemas, bounds and ID/reference checks before mutation; rejected input leaves original intact; URI/content boundaries documented; meaningful regression fixtures | [Clips / evidence](#p4-01-reference) |
 | P4-02 | P0 / C–D | Privacy/access model, account and social threat review | Account isolation and private/public/followers/group/coach audiences tested at server/object boundaries; revocation/deletion propagated; default-private measurements/photos; block/report policies enforced beyond UI | [Clips / evidence](#p4-02-reference) |
 | P4-03 | P1 / B–C | Timer/notification capability matrix | Document foreground, background, locked-screen, killed-process and offline behavior for supported platforms; deadlines remain correct; notification permission refusal does not break logging; no promise of guaranteed background web audio | [Clips / evidence](#p4-03-reference) |
 | P4-04 | P1 / C | Data governance and launch review; P6 account controls | Data/processor inventory, minimal permissions, retention/export/deletion procedures, launch-market privacy review and incident owner; analytics excludes raw notes/photos/measurements; no compliance claim without review | [Clips / evidence](#p4-04-reference) |
@@ -125,4 +125,4 @@ Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md)
 
 ## Next Immediate Action
 
-**Planning only:** define P4-01's safe import/rendering contract and P4-02's data audiences with Pillar 0. Defer health/watch implementation until the core acceptance gates pass.
+**P4-01 personal part implemented 2026-10-14 in `index.html` on branch `codex/p0-03-safe-restore`, awaiting owner device check:** strict restore schema/bounds/reference checks before mutation, rejected input leaves storage intact, preview text rendered as data (textContent). Broader P4-01 work (shared-content rendering, URI boundaries) and P4-02 audiences remain planned with Pillar 0. Defer health/watch implementation until the core acceptance gates pass.
