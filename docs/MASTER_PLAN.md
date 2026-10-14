@@ -1,4 +1,4 @@
-# Workout Engine — from prototype to a fitness product people choose
+# PLZ FitZone — from prototype to a fitness product people choose
 
 **Planning baseline: 2026-10-14. Status: roadmap only; implementation has not started.**
 
