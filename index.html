@@ -453,6 +453,13 @@
           <span style="font-size:14px;">Default Rest Timer (sec)</span>
           <input type="number" id="defaultRestInput" class="set-input" style="width:80px;" value="90" onchange="saveRestPreference()">
         </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Previous values from</span>
+          <select id="prevScopeSelect" class="set-input" style="width:170px;" onchange="setPrevScope(this.value)">
+            <option value="any">Any workout</option>
+            <option value="same">Same routine only</option>
+          </select>
+        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn" style="flex:1;" onclick="exportData()">📤 Backup JSON</button>
           <button class="btn" style="flex:1;" onclick="document.getElementById('importInput').click()">📥 Restore JSON</button>
@@ -826,6 +833,7 @@
       migrateHistoryWeightsToKg(parsed.history, savedUnit);
       parsed.schemaVersion = SCHEMA_VERSION;
       if (!parsed.unit) parsed.unit = 'KG';
+      if (parsed.prevScope !== 'same' && parsed.prevScope !== 'any') parsed.prevScope = 'any';
       return parsed;
     }
 
@@ -887,6 +895,7 @@
       // P0-03: seed defaults ONLY on a true first run (no saved state at all).
       // A saved state that intentionally holds an empty array keeps it empty.
       applySeedDefaults(state, hadSavedState);
+      if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
 
       document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
       document.getElementById('defaultRestInput').value = state.defaultRest || 90;
@@ -1426,17 +1435,93 @@
       document.getElementById('routineUpdateModal').classList.remove('open');
     }
 
-    /* PREVIOUS PERFORMANCE LOOKUP — returns canonical kg; callers display via toDisplay. */
-    function getPreviousSet(exId, setIndex) {
+    /* P2-07 previous-performance matching + P2-11 scope (personal part).
+       Same-type lanes in order (W/W, N/N, D/D, F/F; legacy typeless = N).
+       Source: latest finished workout containing that exercise instance.
+       Scope 'same' limits candidates to the active routineId. History is
+       never rewritten here; display converts via toDisplay helpers. */
+    function normSetType(t) {
+      return (t === 'W' || t === 'D' || t === 'F') ? t : 'N';
+    }
+
+    function getPrevScope() {
+      return state.prevScope === 'same' ? 'same' : 'any';
+    }
+
+    function setPrevScope(v) {
+      // Preference only; stored sessions are never modified.
+      state.prevScope = (v === 'same') ? 'same' : 'any';
+      saveState();
+      renderProfileStats();
+      if (activeWorkout) renderActiveWorkout();
+    }
+
+    function getExInstanceIdx(exercises, exIdx) {
+      const list = exercises || [];
+      const id = list[exIdx] && list[exIdx].exId;
+      let n = 0;
+      for (let j = 0; j < exIdx; j++) {
+        if (list[j] && list[j].exId === id) n++;
+      }
+      return n;
+    }
+
+    function getSetLaneIndex(sets, sIdx) {
+      const list = sets || [];
+      const want = normSetType(list[sIdx] && list[sIdx].type);
+      let n = 0;
+      for (let j = 0; j < sIdx; j++) {
+        if (normSetType(list[j] && list[j].type) === want) n++;
+      }
+      return n;
+    }
+
+    function findPreviousExercise(exId, instanceIdx, routineId) {
+      const scope = getPrevScope();
+      const wantInstance = Math.max(0, instanceIdx || 0);
       for (let i = 0; i < state.history.length; i++) {
         const w = state.history[i];
-        const foundEx = w.exercises.find(e => e.exId === exId);
-        if (foundEx && foundEx.sets[setIndex]) {
-          const s = foundEx.sets[setIndex];
-          return { weight: s.weight, reps: s.reps };
+        if (!w || !Array.isArray(w.exercises)) continue;
+        if (scope === 'same' && (w.routineId || null) !== (routineId || null)) continue;
+        let seen = -1;
+        for (let k = 0; k < w.exercises.length; k++) {
+          const item = w.exercises[k];
+          if (item && item.exId === exId) {
+            seen++;
+            if (seen === wantInstance && Array.isArray(item.sets)) return item;
+          }
         }
       }
       return null;
+    }
+
+    /* PREVIOUS PERFORMANCE LOOKUP — returns canonical kg; callers display via toDisplay. */
+    function getPreviousSet(exId, setIndex, wantType, instanceIdx, routineId) {
+      const type = normSetType(wantType);
+      const lane = Math.max(0, Number(setIndex) || 0);
+      const prevEx = findPreviousExercise(exId, instanceIdx, routineId);
+      if (!prevEx) return null;
+      const lane_sets = (prevEx.sets || []).filter(s => normSetType(s && s.type) === type);
+      const s = lane_sets[lane];
+      if (!s) return null;
+      return { weight: s.weight, reps: s.reps };
+    }
+
+    function copyPreviousIntoSet(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
+      const exItem = activeWorkout.exercises[exIdx];
+      const s = exItem.sets[sIdx];
+      const lane = getSetLaneIndex(exItem.sets, sIdx);
+      const inst = getExInstanceIdx(activeWorkout.exercises, exIdx);
+      const prev = getPreviousSet(exItem.exId, lane, s.type, inst, activeWorkout.routineId || null);
+      if (!prev) return false;
+      // Copy values only; never tick done here.
+      s.weight = prev.weight;
+      s.reps = prev.reps;
+      clearSetError(exIdx, sIdx);
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
     }
 
     /* P2-02: validation helpers. Weight is canonical kg (0 allowed for
@@ -1618,11 +1703,16 @@
         startTime: Date.now(),
         finishing: false,
         routineId: rt.id,
-        exercises: rt.exercises.map(item => {
+        exercises: rt.exercises.map((item, itemIdx) => {
           const norm = normalizeRoutineItem(item);
+          let inst = 0;
+          for (let j = 0; j < itemIdx; j++) {
+            if (rt.exercises[j] && rt.exercises[j].exId === item.exId) inst++;
+          }
           const sets = [];
           for (let i = 0; i < norm.sets; i++) {
-            const prev = getPreviousSet(item.exId, i);
+            // New routine sets start as Normal; lane i matches the ith Normal previous set.
+            const prev = getPreviousSet(item.exId, i, 'N', inst, rt.id || null);
             // P2-04: explicit targets win; otherwise keep the legacy previous-value prefill.
             const hasTargets = (norm.targetRepsMin !== null) || (norm.targetWeightKg !== null);
             sets.push({
@@ -1700,7 +1790,9 @@
         let normalCounter = 1;
         const repsPh = exItem.targetRepsLabel || '0';
         exItem.sets.forEach((s, sIdx) => {
-          const prev = getPreviousSet(exItem.exId, sIdx);
+          const lane = getSetLaneIndex(exItem.sets, sIdx);
+          const inst = getExInstanceIdx(activeWorkout.exercises, exIdx);
+          const prev = getPreviousSet(exItem.exId, lane, s.type, inst, activeWorkout.routineId || null);
           const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
           const label = s.type === 'N' ? normalCounter++ : s.type;
           const key = exIdx + ':' + sIdx;
@@ -1712,7 +1804,7 @@
           setsHtml += `
             <div class="set-row ${s.done ? 'done' : ''}">
               <button class="set-type-btn set-type-${s.type}" onclick="cycleSetType(${exIdx}, ${sIdx})">${label}</button>
-              <div class="prev-text">${prevStr}</div>
+              <div class="prev-text" onclick="copyPreviousIntoSet(${exIdx}, ${sIdx})">${prevStr}</div>
               <input type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
               <input type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="${repsPh}" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
               <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
@@ -2016,6 +2108,7 @@
       state.history.unshift({
         id: 'wk_' + Date.now(),
         title: document.getElementById('activeWorkoutTitle').value.trim() || 'Workout',
+        routineId: finishedRoutineId,
         date: Date.now(),
         durationSec,
         totalVolume: Math.max(0, Math.round(totalVolume * 100) / 100),
@@ -2104,7 +2197,9 @@
 
     function selectExercise(exId) {
       if (pickerTarget === 'workout' && activeWorkout) {
-        const prev = getPreviousSet(exId, 0);
+        let inst = 0;
+        activeWorkout.exercises.forEach(e => { if (e && e.exId === exId) inst++; });
+        const prev = getPreviousSet(exId, 0, 'N', inst, activeWorkout.routineId || null);
         activeWorkout.exercises.push({
           exId,
           restSec: (state.defaultRest || 90),
@@ -2207,6 +2302,8 @@
       document.getElementById('statWorkouts').innerText = totalWorkouts;
       document.getElementById('statVolume').innerText = totalVolume > 9999 ? (totalVolume / 1000).toFixed(1) + 'k' : totalVolume;
       document.getElementById('statSets').innerText = totalSets;
+      const scopeSel = document.getElementById('prevScopeSelect');
+      if (scopeSel) scopeSel.value = getPrevScope();
 
       const counts = { Chest: 0, Back: 0, Legs: 0, Shoulders: 0, Arms: 0, Core: 0 };
       state.history.forEach(w => {
@@ -2318,6 +2415,7 @@
         if (!Array.isArray(target.routines)) target.routines = [];
       }
       if (!Array.isArray(target.history)) target.history = [];
+      if (target.prevScope !== 'same' && target.prevScope !== 'any') target.prevScope = 'any';
       return target;
     }
 
@@ -2351,6 +2449,7 @@
       if (!Array.isArray(data.routines)) data.routines = [];
       if (!Array.isArray(data.exercises)) data.exercises = [];
       if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
+      if (data.prevScope !== 'same' && data.prevScope !== 'any') data.prevScope = 'any';
 
       const seenEx = {};
       for (let i = 0; i < data.exercises.length; i++) {
@@ -2513,6 +2612,7 @@
       state = pendingRestore;
       pendingRestore = null;
       if (!state.unit) state.unit = 'KG';
+      if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       saveState();
       closeModal('restoreModal');
       restoreDoneThisSession = true;
@@ -2545,6 +2645,7 @@
         return;
       }
       state = saved;
+      if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       try {
         // Write back the exact snapshot string so undo restores data byte-for-byte.
         localStorage.setItem('hevy_clone_state', raw);
