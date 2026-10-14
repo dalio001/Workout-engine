@@ -2,6 +2,11 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-14 — Planned personal first-run setup (P1-05) from owner's Hevy recording
+
+- Rewrote P1-05 in `docs/pillars/01_UI_DESIGN.md` as an active personal-plan task from V3 (owner's local Hevy Android first-run recording, 2026-10-14, 1:23; no URL, cited as "V3 MM:SS"): shown once on first launch, re-openable from Profile, every step skippable, back button, progress dots, Continue disabled until a required choice, existing users never forced through it. Adopted steps (V3 ranges in the P1-05 reference): original-wording 2–3-slide welcome, KG/LBS unit (sets P6-01), cm/ft-in height, optional birthday-or-age, goal, experience, build-own vs start-from-template, "You're ready" landing on the Workout tab with a "How to get started" card; answers local/private/editable. Not adopted: paywall (P6), email/attribution (P7), contact sync (P3), Health Connect (P4, only after a privacy review). Flow structure only, never Hevy text/icons/images.
+- Added V3 source and timeline table to `docs/research/VIDEO_REFERENCE_INDEX.md`; added one cross-reference line each in P6-01, P6-03, P4-06, P3-02 and P7-02; listed P1-05 in MASTER_PLAN.md section 0 row 3. Documentation only; `index.html` unchanged, no browser run, no screenshots.
+
 ## 2026-10-14 — Canonical-kg unit fix implemented, awaiting owner phone check
 
 - Fixed the KG/LBS relabel bug in `index.html` on branch `codex/units-preserve-load`: every weight is stored in kilograms; the toggle only changes display (`toDisplayWeight`: kg ≤2 decimals, lb ≤1 decimal) and input reading (`fromInputWeight`: LBS typed values divided by 2.20462, KG saved as is). 100 kg now shows 220.5 lb; typing 225 lb stores 102.06 kg; toggling never rewrites stored kg.

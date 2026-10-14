@@ -95,6 +95,7 @@ Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md)
 - **Average heart rate in a saved workout — Shown:** [V2 9:06–9:20](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=546s); reviewer attributes it to Apple Health/watch connection around 9:13.
 - **Apple Health option — Entry point:** [V2 3:51–3:56](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=231s).
 - **Consent setup, permission refusal, source deduplication and Health Connect — Not demonstrated.** Use platform documentation and our adapter contract when requested; the recording does not prove mapping/reconciliation.
+- **First-run Health Connect prompt — Shown in V3 00:09–00:11 with OS grants at V3 00:00–00:09 (not adopted; optional later, only after a privacy review):** see [P1-05](./01_UI_DESIGN.md#p1-05-reference).
 
 ### P4-07 reference
 

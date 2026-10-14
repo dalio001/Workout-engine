@@ -66,6 +66,7 @@ This pillar remains deferred for personal use. Source IDs and evidence labels: [
 - **Profile editing/public versus private fields — Shown:** [V2 6:18–6:35](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=378s).
 - **Private profile/default visibility/Hide Suggested Users — Settings shown:** [V2 3:14–3:34](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=194s).
 - **Suggested athletes/following context — Shown:** [V2 8:42–9:10](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=522s). Requests, block/revoke and backend access enforcement are not exercised.
+- **First-run "Find your friends" contact sync — Shown in V3 00:29–00:31 (not adopted; deferred with this pillar for personal use):** see [P1-05](./01_UI_DESIGN.md#p1-05-reference).
 
 ### P3-03 reference
 

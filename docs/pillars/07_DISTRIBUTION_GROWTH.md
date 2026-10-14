@@ -76,6 +76,7 @@ This pillar is deferred for personal use. Neither supplied video demonstrates ou
 ### P7-02 reference
 
 - **Analytics events, onboarding experiments and denominators — Not demonstrated in V1/V2.** Use [master measurement definitions](../MASTER_PLAN.md) and privacy constraints. A visible logging journey is not instrumentation evidence.
+- **First-run email opt-in (V3 00:25–00:29) and "how did you hear" attribution (V3 00:31–00:35) — Shown (not adopted; growth deferred for personal use):** see [P1-05](../pillars/01_UI_DESIGN.md#p1-05-reference).
 
 ### P7-03 reference
 

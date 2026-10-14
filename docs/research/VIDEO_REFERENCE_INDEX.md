@@ -8,6 +8,7 @@ Verified on **2026-10-14**. Use a task's **Feature references** link in its pill
 | --- | --- | --- | --- | --- |
 | V1 | [Hevy App Review — Important Things To Know](https://www.youtube.com/watch?v=8ESngufwx6g) | Knowledge By Marcus / 2024-12-04 | 4:35 | Full native captions, 32 overview frames, 20 targeted timestamp checks |
 | V2 | [I Tried Hevy for 7 Days — Is It Actually the Best Gym App?](https://www.youtube.com/watch?v=CkYBAlBrAAw) | Home Gym Gains / 2026-07-28 | 12:31 | Full native captions, 48 overview frames, 44 targeted timestamp checks |
+| V3 | Owner's local screen recording of the Hevy Android first-run, 2026-10-14 (kept locally only; no URL; cite as "V3 MM:SS") | Owner / 2026-10-14 | 1:23 | Supervisor-verified timeline from frames; video and frames are not committed |
 
 The visual review is sampled with focused seeks, not continuous frame-by-frame playback. V2's chapter labels were checked against captions and visible scenes; some feature UI appears outside its nominal chapter. Use the feature ranges below instead of relying on chapter titles alone. Temporary video/frame files are not committed or redistributed.
 
@@ -71,6 +72,25 @@ Video observations describe the app version and account in that recording. Prici
 | Custom exercise with personal demo, muscle labels and records | [V2 9:58–10:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=598s) | Existing custom exercise/detail/demo shown; creation/upload/link editor not demonstrated | P2-06/13, P4-05, P5-02 |
 | Pro offer and premium slides | [V2 10:46–11:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=646s) | Recorded regional promotion; no purchase/restore/refund | P6-03/04/05 |
 | AI programs and unlimited options | [V2 11:45–12:00](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=705s) | Narrated while premium screens display; no adaptive program execution | P2-10, P5-05/06 |
+
+## V3 scenes (owner's Hevy Android first-run, 2026-10-14; no URL; cite as "V3 MM:SS")
+
+| Feature | Exact clip | Evidence / limit | Main task owners |
+| --- | --- | --- | --- |
+| Android Health Connect OS permission grants (read body fat/weight; write body fat/exercise/heart rate/calories) | V3 00:00–00:09 | Shown; setting/permission screen only, not PLZ FitZone behavior | P4-06 |
+| Hevy "Health Connect: Enable permissions" prompt (Enable Health Connect / Not Now) | V3 00:09–00:11 | Shown; not adopted — deferred to P4, optional later after a privacy review | P1-05, P4-06 |
+| Birthday picker (day/month/year, private-and-secure note, Continue) | V3 00:11–00:13 | Shown; adopt as birthday or age (optional), stored locally | P1-05, P5-04 |
+| Height with Centimeters / Feet and Inches toggle and scroll picker | V3 00:13–00:15 | Shown; adopt with the same unit choice, stored locally | P1-05, P5-04 |
+| Top goal single choice (Build Muscle / Gain Strength / Fat Loss) | V3 00:15–00:19 | Shown; adopt the step with original PLZ FitZone wording | P1-05 |
+| Training experience single choice (Beginner 0-1 / Intermediate 1-3 / Advanced 3+; Continue disabled until chosen) | V3 00:19–00:21 | Shown; adopt, including the disabled-Continue-until-chosen rule | P1-05 |
+| Build-own vs guided routine choice (Skip available) | V3 00:21–00:23 | Shown; adopt as build-own vs start-from-template | P1-05 |
+| Paywall "Get Full Access" (monthly/yearly/lifetime prices, Not now) | V3 00:23–00:25 | Shown; not adopted — deferred to P6 billing | P1-05, P6-03 |
+| Email opt-in (Sure / No thanks) | V3 00:25–00:29 | Shown; not adopted — deferred to P7 growth | P1-05, P7 |
+| Find-your-friends contact sync (No thanks) | V3 00:29–00:31 | Shown; not adopted — deferred to P3 community | P1-05, P3 |
+| Attribution survey "How did you hear about Hevy?" (source list, Skip) | V3 00:31–00:35 | Shown; not adopted — deferred to P7 growth | P1-05, P7 |
+| Welcome carousel (4 slides ending "You're ready! Now start training"; dots, Continue, Skip, "Get Started") | V3 00:35–01:19 | Shown; adopt as a short 2–3-slide PLZ FitZone welcome with original wording/visuals | P1-05 |
+| Landing on Workout tab (Start Empty Workout, New Routine, Explore Routines, "How to get started" card) | V3 01:19–01:23 | Shown; adopt the Workout-tab landing with the "How to get started" card | P1-05 |
+| Weight-unit KG/LBS step setting the unit preference | No V3 range claimed | Adopted PLZ FitZone step; unit selection UI shown in V2 3:34–3:42 | P1-05, P6-01 |
 
 ## What V2 adds to V1
 

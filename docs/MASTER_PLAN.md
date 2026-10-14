@@ -18,7 +18,7 @@ The user's clarification on 2026-10-14 supersedes the public-launch priority ord
 | --- | --- | --- | --- |
 | 1 | Pillar 0 + core Pillar 2 contracts | Sessions survive refresh; backups are recoverable; weights retain their meaning | P0-01/02/03, P2-01/02, P5-01, P4-01 |
 | 2 | Pillar 2 | Edit and duplicate your own routines; log sets quickly; accurate rest and previous performance | P2-03/04/05/07; catalogue work P2-06 limited to movements you actually use |
-| 3 | Pillar 1 | Comfortable logging on your actual phone; clear resume/error states and accessible controls | P1-01/02/03/04; preserve useful existing tabs rather than adding an empty social Home |
+| 3 | Pillar 1 | Comfortable logging on your actual phone; clear resume/error states and accessible controls; personal first-run setup (P1-05) after the data-safety work | P1-01/02/03/04/05; preserve useful existing tabs rather than adding an empty social Home |
 | 4 | Pillar 5 | Detailed history, meaningful PRs, simple exercise trends and a training calendar | P5-01/02/03; optional private measurements from P5-04 |
 | 5 | Basic pillars 4 and 6 | Safe imports, predictable timer behavior and your unit/rest/display preferences | P4-01/03 and relevant P4-04 export/retention choices; P6-01 |
 | Later, only if useful | Selected sync/device/guidance tasks | Move between your own devices or obtain explainable optional targets | P0-05 after an explicit sync/account decision; P4-06/07 and P5-05 individually scoped |

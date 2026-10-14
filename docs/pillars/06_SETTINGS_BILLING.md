@@ -74,6 +74,7 @@ Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md)
 - **RPE toggle — Setting only:** [V2 5:20–6:15](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=320s); no set-entry demo.
 - **Smart scrolling/inline timer/live-PR toggle — Settings only:** [V2 5:35–6:12](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=335s); runtime P2-12/P5-02.
 - **Sound settings:** exact scenes in P6-08 below. Numeric conversion, locale parsing, haptics, preference migrations and sync conflicts are not demonstrated.
+- **First-run weight-unit KG/LBS step setting this preference — adopted in P1-05:** see [P1-05](./01_UI_DESIGN.md#p1-05-reference).
 
 ### P6-02 reference
 
@@ -87,6 +88,7 @@ Source/evidence definitions: [video index](../research/VIDEO_REFERENCE_INDEX.md)
 - **Premium offer/history gating — Shown:** [V1 3:10–3:25](https://www.youtube.com/watch?v=8ESngufwx6g&t=190s) and [V2 10:46–11:44](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=646s).
 - **AI/unlimited feature pitch — Narrated:** [V2 11:45–12:00](https://www.youtube.com/watch?v=CkYBAlBrAAw&t=705s).
 - **Our price research, package economics and data-ownership rules — Not demonstrated.** Use P6-03/P7-05 if a public product is requested; no paywall needed now.
+- **First-run paywall — Shown in V3 00:23–00:25 (not adopted; billing deferred for personal use):** see [P1-05](./01_UI_DESIGN.md#p1-05-reference).
 
 ### P6-04 reference
 
