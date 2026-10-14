@@ -1,0 +1,20 @@
+# P0-06: zero-dependency checks on every push/PR to main.
+# No install, no build — the app is a static file; the suite runs the real
+# app code via tests/harness.mjs (node:vm + node:test only).
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tests/

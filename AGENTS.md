@@ -65,10 +65,10 @@ Every agent working on this project must follow this protocol:
 
 - **Audited branch:** `main`, with a clean working tree before the documentation session. Publish the documentation through a `codex/<topic>` branch and pull request into `main`. Future implementation should also use a `codex/<topic>` branch unless the user specifies another branch; keep stable branches clean.
 - **Current runtime:** one self-contained `index.html`, vanilla HTML/CSS/JavaScript, browser `localStorage`. Open the file in a browser; there is no package manager or build step.
-- **Lint:** not configured. Do not claim `npm run lint` exists.
-- **Automated tests:** not configured. Do not claim `npm test` exists.
-- **Build:** not applicable to the current static file. Do not claim a build passed.
-- Before future code work, establish the real lint/test/typecheck/build commands through P0-06 and record them here. Once established, all applicable commands must pass for a code-changing session.
+- **Lint:** not applicable (no dependencies, no build step). Do not claim `npm run lint` exists.
+- **Automated tests:** `node --test tests/` — zero-dependency suite (Node built-in runner, `node:assert`, `node:vm` only) that runs the REAL `<script>` from `index.html` via `tests/harness.mjs`, plus `sw.js` syntax and manifest checks. No `package.json`, no install, no framework. Every code change must keep `node --test tests/` green and add a test for new logic. Do not claim `npm test` exists.
+- **Build:** not applicable to the current static file (served as-is; do not add a build step). Do not claim a build passed.
+- Before future code work, record any additional real lint/typecheck commands through P0-06 here. Once established, all applicable commands must pass for a code-changing session.
 - Until then, future code changes require targeted browser checks of affected workflows and meaningful regression checks for persistence, units, timers, imports, or metrics when affected. Document exactly what was checked.
 - Schema changes require a versioned migration, fixtures for old data, preservation of the original backup, and a rollback/recovery strategy.
 - Preserve the meaning of historical loads. The legacy backup has no per-set units; mixed-unit history cannot be silently reconstructed with certainty.
