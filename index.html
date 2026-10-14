@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="PLZ FitZone">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="48x48" href="./icons/favicon-48.png">
   <title>PLZ FitZone - Workout Tracker</title>
   <style>
     :root {
@@ -61,6 +62,8 @@
       gap: 6px;
     }
     .logo span { color: var(--text); }
+    .logo-plz { color: #a3e635; font-weight: 900; }
+    .logo-mascot { width: 40px; height: 40px; border-radius: 12px; display: block; }
 
     /* MAIN SCROLL VIEW */
     main {
@@ -437,7 +440,7 @@
 
   <!-- TOP HEADER -->
   <header>
-    <div class="logo">🏋️ PLZ<span>FitZone</span></div>
+    <div class="logo"><img class="logo-mascot" src="./icons/mascot-96.png" alt="" width="40" height="40"><b class="logo-plz">PLZ</b><span>FitZone</span></div>
     <div style="display:flex; gap:8px;">
       <button class="btn" onclick="openPlateCalcModal()" title="Plate Calculator">🧮 Plates</button>
       <button class="btn" id="unitToggleBtn" onclick="toggleUnit()">KG</button>

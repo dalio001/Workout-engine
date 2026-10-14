@@ -1,5 +1,5 @@
 /* PLZ FitZone service worker: offline support for the installable app. */
-var CACHE_VERSION = 'plz-fitzone-v1';
+var CACHE_VERSION = 'plz-fitzone-v2';
 var CACHE_NAME = CACHE_VERSION;
 
 var CORE_ASSETS = [
@@ -9,7 +9,9 @@ var CORE_ASSETS = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/maskable-512.png',
-  './icons/apple-touch-icon.png'
+  './icons/apple-touch-icon.png',
+  './icons/mascot-96.png',
+  './icons/favicon-48.png'
 ];
 
 self.addEventListener('install', function(event) {
