@@ -2032,9 +2032,24 @@
       } catch (e) {}
     }
 
-    /* P2-05: blur/enter normalisation (display rounding) after typing is done. */
+    /* P2-05: blur/enter normalisation (display rounding) after typing is done.
+       Must NOT rebuild the list: onchange fires on blur, exactly when the
+       finger lands on the next box, so a re-render would destroy that box
+       and eat the tap. Normalise only this row's inputs in place. */
     function handleSetFieldChange(exIdx, sIdx) {
-      renderActiveWorkout();
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      try {
+        const wEl = document.getElementById('set-w-' + exIdx + '-' + sIdx);
+        if (wEl && 'value' in wEl && s.weight !== '' && s.weight !== null && s.weight !== undefined) {
+          wEl.value = formatDisplayWeight(s.weight);
+        }
+        const rEl = document.getElementById('set-r-' + exIdx + '-' + sIdx);
+        if (rEl && 'value' in rEl && s.reps !== '' && s.reps !== null && s.reps !== undefined) {
+          rEl.value = String(Number(s.reps));
+        }
+      } catch (e) {}
+      paintSetRowError(exIdx, sIdx);
       saveActiveSession();
     }
 
@@ -2187,11 +2202,12 @@
       return true;
     }
 
-    /* P2-05 short note per exercise in the workout (personal part). */
+    /* P2-05 short note per exercise in the workout (personal part).
+       onchange only: no list rebuild (same tap-eating reason as
+       handleSetFieldChange); the input already shows its own value. */
     function updateActiveNote(exIdx, val) {
       if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
       activeWorkout.exercises[exIdx].note = String(val || '').slice(0, 140);
-      renderActiveWorkout();
       saveActiveSession();
       return true;
     }

@@ -46,6 +46,23 @@ describe('P2-05 multi-digit input fix', () => {
     assert.equal(app.api.activeWorkout.exercises[0].sets[0].weight, 22.5, 'model holds 22.5');
   });
 
+  it('moving-from-kg-to-reps-does-not-rebuild-the-list', () => {
+    const app = start(createApp());
+    const box = sentinelBox(app);
+    app.api.updateSetVal(0, 0, 'weight', '100');
+    app.api.handleSetFieldChange(0, 0); // blur KG = old buggy re-render point
+    app.api.updateSetVal(0, 0, 'reps', '12');
+    app.api.handleSetFieldChange(0, 0); // blur REPS
+    assert.equal(box.innerHTML, 'SENTINEL', 'container NOT rewritten when moving between boxes (next tap lands)');
+    assert.equal(app.api.activeWorkout.exercises[0].sets[0].weight, 100, 'model weight 100 kept');
+    assert.equal(app.api.activeWorkout.exercises[0].sets[0].reps, 12, 'model reps 12 kept');
+    assert.equal(app.el('set-w-0-0').value, '100', 'KG box normalised in place');
+    assert.equal(app.el('set-r-0-0').value, '12', 'REPS box normalised in place');
+    const draft = JSON.parse(app.store.get(DRAFT_KEY));
+    assert.equal(draft.exercises[0].sets[0].weight, 100, 'draft weight saved');
+    assert.equal(draft.exercises[0].sets[0].reps, 12, 'draft reps saved');
+  });
+
   it('invalid-shows-row-error-without-rerendering-focused-box', () => {
     const app = start(createApp());
     const box = sentinelBox(app);
