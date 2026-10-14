@@ -686,6 +686,55 @@
     </div>
   </div>
 
+  <!-- HISTORY DETAIL (P2-08 personal part: full finished-workout sheet) -->
+  <div class="modal" id="histDetailModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Workout detail</span>
+        <button class="btn" onclick="closeHistDetail()">✕</button>
+      </div>
+      <div class="modal-body" id="histDetailBody"></div>
+      <div id="histDetailFooter" style="display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border); flex-wrap:wrap;">
+        <button class="btn" id="histDetailEditBtn" style="flex:1; min-height:52px;" data-wid="" onclick="openHistEdit(this.getAttribute('data-wid'))">✏️ Edit</button>
+        <button class="btn" id="histDetailRepeatBtn" style="flex:1; min-height:52px;" data-wid="" onclick="startHistWorkout(this.getAttribute('data-wid'))">▶️ Repeat</button>
+        <button class="btn" id="histDetailRoutineBtn" style="flex:1; min-height:52px;" data-wid="" onclick="saveHistAsRoutine(this.getAttribute('data-wid'))">📋 As routine</button>
+        <button class="btn btn-danger" id="histDetailDeleteBtn" style="flex:1; min-height:52px;" data-wid="" onclick="askDeleteHist(this.getAttribute('data-wid'))">🗑️ Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY EDIT (P2-08 personal part: correct a finished workout) -->
+  <div class="modal" id="histEditModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Edit workout</span>
+        <button class="btn" onclick="cancelHistEdit()">✕</button>
+      </div>
+      <div class="modal-body" id="histEditBody"></div>
+      <div id="histEditFooter" style="display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--border);">
+        <button class="btn" style="flex:1; min-height:52px;" onclick="cancelHistEdit()">Cancel</button>
+        <button class="btn btn-primary" style="flex:2; min-height:52px;" onclick="saveHistEdit()">💾 Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY DELETE CONFIRM (P2-08: app modal, never window.confirm) -->
+  <div class="modal" id="deleteHistModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Delete workout</span>
+        <button class="btn" onclick="cancelDeleteHist()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="deleteHistText" style="font-size:14px; line-height:1.6; margin-bottom:12px;"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" style="flex:1; min-height:52px;" onclick="cancelDeleteHist()">Cancel</button>
+          <button class="btn btn-danger" style="flex:1; min-height:52px;" onclick="confirmDeleteHist()">Yes, delete</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ROUTINE BUILDER MODAL -->
   <div class="modal" id="routineModal">
     <div class="modal-content">
@@ -1203,6 +1252,16 @@
     let pendingRoutineUpdate = null;
     let restPickerMode = 'workout';
     let builderRestTarget = null;
+    /* P2-08 history operations (personal part): detail target, edit draft,
+       per-row edit errors, delete-confirm target and delete-undo snapshot.
+       All in-memory; only Save/Delete/Undo write state.history + saveState. */
+    let histDetailId = null;
+    let editingHistId = null;
+    let editingHistDraft = null;
+    let histEditErrors = {};
+    let pendingDeleteHistId = null;
+    let deletedHistBackup = null;
+    let deletedHistTimer = null;
     /* P2-05 set actions (personal part): set-menu target, replace-picker
        target exercise, single-set undo snapshot. */
     let setMenuTarget = null;
@@ -1251,6 +1310,9 @@
       applySeedDefaults(state, hadSavedState);
       // P2-06: idempotent exercise normalisation on every load (no version bump).
       normalizeExercises(state);
+      // P2-08: idempotent history-id backfill (no version bump); old entries
+      // without ids get one, existing ids are untouched.
+      ensureHistoryIds(state.history);
       if (hadSavedState) saveState();
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       state.plateSettings = normalizePlateSettings(state.plateSettings);
@@ -1462,6 +1524,7 @@
       saveState();
       if (activeWorkout) renderActiveWorkout();
       renderHistory();
+      renderHistDetail();
       renderProfileStats();
     }
 
@@ -1555,7 +1618,7 @@
       }
       let rest = state.defaultRest || 90;
       if (typeof src.restSec === 'number' && isFinite(src.restSec) && src.restSec >= 0) rest = src.restSec;
-      return {
+      const out = {
         exId: src.exId,
         sets,
         targetRepsMin: rp.min,
@@ -1564,6 +1627,14 @@
         restSec: rest,
         note: String(src.note || '').slice(0, 140)
       };
+      /* P2-08: routines created from history keep each set's type
+         (W/N/D/F). Old items without setTypes behave exactly as before. */
+      if (Array.isArray(src.setTypes)) {
+        const st = src.setTypes.map(t => normSetType(t)).slice(0, 50);
+        while (st.length < sets) st.push('N');
+        out.setTypes = st.slice(0, sets);
+      }
+      return out;
     }
 
     function deleteRoutine(id) {
@@ -2081,12 +2152,19 @@
           }
           const sets = [];
           for (let i = 0; i < norm.sets; i++) {
-            // New routine sets start as Normal; lane i matches the ith Normal previous set.
-            const prev = getPreviousSet(item.exId, i, 'N', inst, rt.id || null);
+            /* Set type: stored setTypes win (P2-08 history-made routines);
+               plain routines start every set as Normal. Lane counts within
+               the type so previous-value lookup stays aligned. */
+            const st = (Array.isArray(norm.setTypes) && norm.setTypes[i]) ? norm.setTypes[i] : 'N';
+            let lane = 0;
+            for (let j = 0; j < i; j++) {
+              if (((Array.isArray(norm.setTypes) && norm.setTypes[j]) || 'N') === st) lane++;
+            }
+            const prev = getPreviousSet(item.exId, lane, st, inst, rt.id || null);
             // P2-04: explicit targets win; otherwise keep the legacy previous-value prefill.
             const hasTargets = (norm.targetRepsMin !== null) || (norm.targetWeightKg !== null);
             sets.push({
-              type: 'N',
+              type: st,
               weight: (norm.targetWeightKg !== null) ? norm.targetWeightKg : (prev ? prev.weight : ''),
               reps: (!hasTargets && prev) ? prev.reps : '',
               done: false
@@ -2670,31 +2748,21 @@
       activeWorkout.finishing = true;
 
       const durationSec = Math.floor((Date.now() - activeWorkout.startTime) / 1000);
-      let totalVolume = 0;
-      let totalSets = 0;
-      let prCount = 0;
+      // P2-08: totals + PR flags via the shared scorer (also used by edit-save).
+      const score = scoreHistExercises(completedExercises, null);
+      const totalVolume = score.totalVolume;
+      const totalSets = score.totalSets;
+      const prCount = score.prCount;
 
-      completedExercises.forEach(ex => {
-        const prevBest1RM = getBest1RM(ex.exId);
-        let sessionBest1RM = 0;
-
-        ex.sets.forEach(s => {
-          const w = Math.max(0, Number(s.weight) || 0);
-          const r = Math.max(0, Number(s.reps) || 0);
-          totalVolume += w * r;
-          totalSets++;
-          const est1RM = w * (1 + r / 30);
-          if (est1RM > sessionBest1RM) sessionBest1RM = est1RM;
-        });
-
-        if (sessionBest1RM > prevBest1RM && prevBest1RM > 0) {
-          ex.isPR = true;
-          prCount++;
-        }
-      });
-
+      /* P2-08: workout ids are unique even for two saves in one millisecond. */
+      const saveStamp = Date.now();
+      let newHistId = 'wk_' + saveStamp;
+      let histDup = 2;
+      while (state.history.some(w => w && String(w.id) === newHistId)) {
+        newHistId = 'wk_' + saveStamp + '_' + (histDup++);
+      }
       state.history.unshift({
-        id: 'wk_' + Date.now(),
+        id: newHistId,
         title: document.getElementById('activeWorkoutTitle').value.trim() || 'Workout',
         routineId: finishedRoutineId,
         date: Date.now(),
@@ -2750,10 +2818,12 @@
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
     }
 
-    /* Best Epley estimate in canonical kg; display converts via toDisplay. */
-    function getBest1RM(exId) {
+    /* Best Epley estimate in canonical kg; display converts via toDisplay.
+       excludeId skips one history entry (P2-08 edit-save PR check). */
+    function getBest1RM(exId, excludeId) {
       let best = 0;
       state.history.forEach(w => {
+        if (excludeId != null && w && String(w.id) === String(excludeId)) return;
         const found = w.exercises.find(e => e.exId === exId);
         if (found) {
           found.sets.forEach(s => {
@@ -2962,6 +3032,15 @@
       if (pickerTarget === 'routine') {
         ids.forEach(id => { tempRoutineExercises.push(normalizeRoutineItem({ exId: id, sets: 3 })); });
         renderRoutineBuilderList();
+      } else if (pickerTarget === 'edithist') {
+        // P2-08: add to the history-edit draft (never the live workout/draft).
+        if (editingHistDraft && Array.isArray(editingHistDraft.exercises)) {
+          ids.forEach(id => {
+            editingHistDraft.exercises.push({ exId: id, note: '', sets: [{ type: 'N', weight: '', reps: '', done: true }] });
+          });
+          histEditErrors = {};
+          renderHistEdit();
+        }
       } else if (pickerTarget === 'workout' && activeWorkout) {
         ids.forEach(id => { addExerciseToWorkout(id); });
         renderActiveWorkout();
@@ -2987,6 +3066,13 @@
       } else if (pickerTarget === 'routine') {
         tempRoutineExercises.push(normalizeRoutineItem({ exId, sets: 3 }));
         renderRoutineBuilderList();
+      } else if (pickerTarget === 'edithist') {
+        // P2-08: single-tap add to the history-edit draft.
+        if (editingHistDraft && Array.isArray(editingHistDraft.exercises)) {
+          editingHistDraft.exercises.push({ exId, note: '', sets: [{ type: 'N', weight: '', reps: '', done: true }] });
+          histEditErrors = {};
+          renderHistEdit();
+        }
       }
       closeModal('exPickerModal');
     }
@@ -3215,37 +3301,74 @@
       `;
     }
 
-    /* HISTORY FEED */
+    /* HISTORY FEED (P2-08 personal part): newest-first by date, grouped by
+       month with a count header. Cards open the detail sheet; text is
+       escaped. The delete-undo banner mirrors the routine one (10 s,
+       in-memory only; a reload drops it). */
     function renderHistory() {
       const container = document.getElementById('historyList');
+      let bannerHtml = '';
+      if (deletedHistBackup) {
+        bannerHtml = `
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+              <span style="font-size:14px;">Workout deleted.</span>
+              <button class="btn" style="padding:6px 12px; font-size:13px;" onclick="undoDeleteHist()">↩️ Undo (10s)</button>
+            </div>
+          </div>
+        `;
+      }
       if (state.history.length === 0) {
-        container.innerHTML = `<div class="card" style="text-align:center; color:var(--text-sub);">No completed workouts yet. Start lifting!</div>`;
+        container.innerHTML = bannerHtml + `<div class="card" style="text-align:center; color:var(--text-sub);">No completed workouts yet. Start lifting!</div>`;
         return;
       }
 
-      container.innerHTML = state.history.map(w => {
-        const dateStr = new Date(w.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        const mins = Math.max(1, Math.round(w.durationSec / 60));
+      const sorted = state.history.slice().sort((a, b) => (Number(b.date) || 0) - (Number(a.date) || 0));
+      const monthCounts = {};
+      sorted.forEach(w => {
+        const d = new Date(Number(w.date) || 0);
+        const key = isFinite(d.getTime()) ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') : 'unknown';
+        monthCounts[key] = (monthCounts[key] || 0) + 1;
+      });
 
-        const exSummary = w.exercises.map(item => {
+      let curKey = null;
+      container.innerHTML = bannerHtml + sorted.map(w => {
+        const d = new Date(Number(w.date) || 0);
+        const key = isFinite(d.getTime()) ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') : 'unknown';
+        const dateStr = isFinite(d.getTime())
+          ? d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : '—';
+        const mins = Math.max(1, Math.round((Number(w.durationSec) || 0) / 60));
+
+        const exSummary = (w.exercises || []).map(item => {
           const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
-          const bestSet = item.sets.reduce((acc, s) => (s.weight * s.reps > acc.weight * acc.reps ? s : acc), item.sets[0]);
+          const sets = Array.isArray(item.sets) ? item.sets : [];
+          const bestSet = sets.length > 0
+            ? sets.reduce((acc, s) => ((Number(s.weight) || 0) * (Number(s.reps) || 0) > (Number(acc.weight) || 0) * (Number(acc.reps) || 0) ? s : acc), sets[0])
+            : { weight: 0, reps: 0 };
           const noteLine = item.note
-            ? `<div style="font-size:12px; color:var(--text-sub); padding:1px 0;">📝 ${item.note}</div>`
+            ? `<div style="font-size:12px; color:var(--text-sub); padding:1px 0;">📝 ${esc(item.note)}</div>`
             : '';
           return `
             <div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0;">
-              <span><b>${item.sets.length} ×</b> ${esc(ex.name)} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
+              <span><b>${sets.length} ×</b> ${esc(ex.name)} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
               <span style="color:var(--text-sub);">Best: ${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}</span>
             </div>
             ${noteLine}
           `;
         }).join('');
 
-        return `
-          <div class="card">
+        let header = '';
+        if (key !== curKey) {
+          curKey = key;
+          const label = key === 'unknown' ? 'Unknown date' : new Date(Number(w.date)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+          const n = monthCounts[key] || 0;
+          header = `<div style="font-size:12px; font-weight:800; color:var(--text-sub); margin:14px 2px 6px;">${esc(label)} (${n} workout${n === 1 ? '' : 's'})</div>`;
+        }
+        return header + `
+          <div class="card" data-wid="${esc(String(w.id))}" onclick="openHistDetail(this.getAttribute('data-wid'))" style="cursor:pointer;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-              <div style="font-weight:800; font-size:16px;">${w.title}</div>
+              <div style="font-weight:800; font-size:16px;">${esc(w.title)}</div>
               <span style="font-size:12px; color:var(--text-sub);">${dateStr}</span>
             </div>
             <div style="display:flex; gap:14px; font-size:12px; color:var(--text-sub); margin-bottom:10px; border-bottom:1px solid var(--border); padding-bottom:8px;">
@@ -3257,6 +3380,596 @@
           </div>
         `;
       }).join('');
+    }
+
+    /* P2-08 HISTORY OPERATIONS (personal part).
+       Detail/edit/delete/repeat/save-as-routine for finished workouts.
+       Derived views (best set, est 1RM, previous values, volume, Profile
+       charts, exercise-detail recents) all recompute live from
+       state.history, so edits and deletes propagate with no extra step.
+       Edit/delete paths never touch activeWorkout or the live draft key. */
+
+    function findHistEntry(id) {
+      if (id == null) return null;
+      return state.history.find(w => w && String(w.id) === String(id)) || null;
+    }
+
+    /* Idempotent history-id backfill (no schema bump, P2-06 pattern):
+       fills missing/blank/duplicate ids only; a second run changes nothing. */
+    function ensureHistoryIds(history) {
+      if (!Array.isArray(history)) return false;
+      const seen = {};
+      let changed = false;
+      history.forEach((w, i) => {
+        if (!w || typeof w !== 'object') return;
+        let id = '';
+        if (typeof w.id === 'string') id = w.id.trim();
+        else if (typeof w.id === 'number' && isFinite(w.id)) id = w.id;
+        if (id === '' || id == null || seen[String(id)]) {
+          let base = 'wk_' + (Number(w.date) || Date.now()) + '_' + i;
+          let fresh = base;
+          let n = 2;
+          while (seen[fresh]) fresh = base + '_' + (n++);
+          w.id = fresh;
+          changed = true;
+          id = fresh;
+        } else if (w.id !== id) {
+          w.id = id;
+          changed = true;
+        }
+        seen[String(id)] = true;
+      });
+      return changed;
+    }
+
+    /* Shared totals + PR scorer. excludeHistId skips one entry so an edited
+       workout is never compared against itself. Mutates isPR on the passed
+       exercise objects (fresh or rewritten), nothing else. */
+    function scoreHistExercises(exercises, excludeHistId) {
+      let totalVolume = 0;
+      let totalSets = 0;
+      let prCount = 0;
+      (exercises || []).forEach(ex => {
+        const prevBest1RM = getBest1RM(ex.exId, excludeHistId);
+        let sessionBest1RM = 0;
+        (ex.sets || []).forEach(s => {
+          const w = Math.max(0, Number(s.weight) || 0);
+          const r = Math.max(0, Number(s.reps) || 0);
+          totalVolume += w * r;
+          totalSets++;
+          const est1RM = w * (1 + r / 30);
+          if (est1RM > sessionBest1RM) sessionBest1RM = est1RM;
+        });
+        if (sessionBest1RM > prevBest1RM && prevBest1RM > 0) {
+          ex.isPR = true;
+          prCount++;
+        } else {
+          delete ex.isPR;
+        }
+      });
+      return {
+        totalVolume: Math.max(0, Math.round(totalVolume * 100) / 100),
+        totalSets,
+        prCount
+      };
+    }
+
+    /* ---- Detail sheet ---- */
+
+    function openHistDetail(id) {
+      const w = findHistEntry(id);
+      if (!w) return false;
+      histDetailId = w.id;
+      renderHistDetail();
+      document.getElementById('histDetailModal').classList.add('open');
+      return true;
+    }
+
+    function closeHistDetail() {
+      histDetailId = null;
+      closeModal('histDetailModal');
+    }
+
+    function renderHistDetail() {
+      const body = document.getElementById('histDetailBody');
+      const w = findHistEntry(histDetailId);
+      if (!w) {
+        body.innerHTML = '<div class="card">Workout not found.</div>';
+        return;
+      }
+      const endMs = Number(w.date) || Date.now();
+      const durMs = Math.max(0, Math.round(Number(w.durationSec) || 0)) * 1000;
+      const startStr = new Date(endMs - durMs).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const mins = Math.max(1, Math.round((Number(w.durationSec) || 0) / 60));
+      const exHtml = (w.exercises || []).map(item => {
+        const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
+        const sets = Array.isArray(item.sets) ? item.sets : [];
+        const rows = sets.map((s, i) => {
+          const t = normSetType(s && s.type);
+          return `<div style="display:flex; gap:8px; align-items:center; font-size:13px; padding:3px 0; border-bottom:1px solid var(--border);">`
+            + `<span style="min-width:44px; color:var(--text-sub);">Set ${i + 1}</span>`
+            + `<span class="type-label">${t}</span>`
+            + `<span style="flex:1;"></span>`
+            + `<span><b>${formatDisplayWeight(s.weight)}</b> ${state.unit} × <b>${esc(String(s.reps))}</b></span>`
+            + `</div>`;
+        }).join('');
+        const noteLine = item.note
+          ? `<div style="font-size:12px; color:var(--text-sub); margin:2px 0 6px;">📝 ${esc(item.note)}</div>`
+          : '';
+        return `<div style="padding:8px 0; border-bottom:1px solid var(--border);">`
+          + `<div style="font-weight:700; font-size:14px;">${esc(ex.name)}${item.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : ''}</div>`
+          + noteLine + rows + `</div>`;
+      }).join('');
+      body.innerHTML = `
+        <div style="font-weight:800; font-size:18px; margin-bottom:2px;">${esc(w.title)}</div>
+        <div style="font-size:12px; color:var(--text-sub); margin-bottom:10px;">Started ${esc(startStr)} · ⏱️ ${mins}m</div>
+        <div style="display:flex; gap:14px; font-size:12px; color:var(--text-sub); margin-bottom:6px;">
+          <span>🏋️ ${toDisplayVolume(w.totalVolume).toLocaleString()} ${state.unit}</span>
+          <span>📊 ${w.totalSets} sets</span>
+          <span>🏆 ${w.prCount || 0} PR${(w.prCount || 0) === 1 ? '' : 's'}</span>
+        </div>
+        ${exHtml}
+      `;
+      ['histDetailEditBtn', 'histDetailRepeatBtn', 'histDetailRoutineBtn', 'histDetailDeleteBtn'].forEach(bid => {
+        try {
+          const b = document.getElementById(bid);
+          if (b && b.setAttribute) b.setAttribute('data-wid', String(w.id));
+        } catch (e) {}
+      });
+    }
+
+    /* ---- Edit screen ----
+       Typing (oninput) and blur (onchange) update the draft model and paint
+       at most the one row in place; only structural taps (add/remove set or
+       exercise, type change, Save) rebuild the list. */
+
+    function openHistEdit(id) {
+      const w = findHistEntry(id);
+      if (!w) return false;
+      editingHistId = w.id;
+      editingHistDraft = JSON.parse(JSON.stringify({
+        title: w.title,
+        date: w.date,
+        durationSec: w.durationSec,
+        exercises: w.exercises
+      }));
+      histEditErrors = {};
+      histDetailId = null;
+      closeModal('histDetailModal');
+      renderHistEdit();
+      document.getElementById('histEditModal').classList.add('open');
+      return true;
+    }
+
+    function cancelHistEdit() {
+      editingHistId = null;
+      editingHistDraft = null;
+      histEditErrors = {};
+      closeModal('histEditModal');
+      return true;
+    }
+
+    function histDateTimeLocal(ts) {
+      const d = new Date(Number(ts) || Date.now());
+      const p = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+    }
+
+    function renderHistEdit() {
+      const body = document.getElementById('histEditBody');
+      const d = editingHistDraft;
+      if (!d) {
+        body.innerHTML = '<div class="card">Nothing to edit.</div>';
+        return;
+      }
+      const exHtml = (d.exercises || []).map((exItem, exIdx) => {
+        const exInfo = state.exercises.find(e => e.id === exItem.exId) || { name: 'Exercise' };
+        let normalCounter = 1;
+        const setsHtml = (exItem.sets || []).map((s, sIdx) => {
+          const t = normSetType(s && s.type);
+          const label = t === 'N' ? normalCounter++ : t;
+          const key = exIdx + ':' + sIdx;
+          const err = histEditErrors[key] || { weight: '', reps: '' };
+          const rowMsg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          return `
+            <div class="set-row">
+              <button class="set-type-btn set-type-${t}" onclick="histCycleSetType(${exIdx}, ${sIdx})">${label}</button>
+              <input id="hist-sw-${exIdx}-${sIdx}" type="number" class="set-input ${err.weight ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateHistSetVal(${exIdx}, ${sIdx}, 'weight', this.value)" onchange="histSetFieldChange(${exIdx}, ${sIdx})">
+              <input id="hist-sr-${exIdx}-${sIdx}" type="number" class="set-input ${err.reps ? 'invalid' : ''}" value="${s.reps === '' ? '' : s.reps}" placeholder="reps" oninput="updateHistSetVal(${exIdx}, ${sIdx}, 'reps', this.value)" onchange="histSetFieldChange(${exIdx}, ${sIdx})">
+              <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeHistSet(${exIdx}, ${sIdx})">✕</button>
+              <div id="hist-serr-${exIdx}-${sIdx}" class="set-error"${rowMsg ? '' : ' style="display:none;"'}>${esc(rowMsg)}</div>
+            </div>
+          `;
+        }).join('');
+        const noteEsc = esc(exItem.note || '');
+        return `
+          <div class="ex-block">
+            <div class="ex-block-header">
+              <div class="ex-name">${esc(exInfo.name)}</div>
+              <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeHistExercise(${exIdx})">✕</button>
+            </div>
+            <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" oninput="updateHistNote(${exIdx}, this.value)">
+            ${setsHtml}
+            <button class="btn btn-block" style="margin-top:8px; padding:8px;" onclick="addHistSet(${exIdx})">+ Add Set</button>
+          </div>
+        `;
+      }).join('');
+      const titleEsc = esc(d.title == null ? '' : d.title);
+      body.innerHTML = `
+        <label style="font-size:13px; color:var(--text-sub);">Title</label>
+        <input type="text" id="histTitleInput" class="input-field" value="${titleEsc}" maxlength="80" oninput="updateHistTitle(this.value)">
+        <label style="font-size:13px; color:var(--text-sub);">Date & time</label>
+        <input type="datetime-local" id="histDateInput" class="input-field" value="${histDateTimeLocal(d.date)}" oninput="updateHistDate(this.value)">
+        <label style="font-size:13px; color:var(--text-sub);">Duration (minutes)</label>
+        <input type="number" id="histDurationInput" class="input-field" value="${Math.max(0, Math.round((Number(d.durationSec) || 0) / 60))}" min="0" oninput="updateHistDuration(this.value)">
+        ${exHtml}
+        <button class="btn btn-block" style="margin-top:10px; padding:10px;" onclick="openExercisePicker('edithist')">➕ Add Exercise</button>
+      `;
+    }
+
+    /* Model-only field updates: never rebuild, never persist, never touch
+       the live draft. Save validates and writes. */
+    function updateHistTitle(val) {
+      if (!editingHistDraft) return false;
+      editingHistDraft.title = String(val == null ? '' : val);
+      return true;
+    }
+
+    function updateHistDate(val) {
+      if (!editingHistDraft) return false;
+      const t = new Date(val).getTime();
+      if (!isFinite(t) || t <= 0) return false;
+      editingHistDraft.date = Math.min(t, Date.now());
+      return true;
+    }
+
+    function updateHistDuration(val) {
+      if (!editingHistDraft) return false;
+      const m = parseFloat(val);
+      if (!isFinite(m) || m < 0) return false;
+      editingHistDraft.durationSec = Math.max(0, Math.round(m * 60));
+      return true;
+    }
+
+    function updateHistNote(exIdx, val) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx]) return false;
+      editingHistDraft.exercises[exIdx].note = String(val == null ? '' : val).slice(0, 140);
+      return true;
+    }
+
+    function histSetFieldError(exIdx, sIdx, field, msg) {
+      const key = exIdx + ':' + sIdx;
+      if (!histEditErrors[key]) histEditErrors[key] = { weight: '', reps: '' };
+      histEditErrors[key][field] = msg;
+    }
+
+    function clearHistSetError(exIdx, sIdx, field) {
+      const key = exIdx + ':' + sIdx;
+      if (!histEditErrors[key]) return;
+      if (field) {
+        histEditErrors[key][field] = '';
+        if (!histEditErrors[key].weight && !histEditErrors[key].reps) delete histEditErrors[key];
+      } else {
+        delete histEditErrors[key];
+      }
+    }
+
+    function paintHistSetRowError(exIdx, sIdx) {
+      try {
+        const key = exIdx + ':' + sIdx;
+        const err = histEditErrors[key] || { weight: '', reps: '' };
+        const wEl = document.getElementById('hist-sw-' + exIdx + '-' + sIdx);
+        const rEl = document.getElementById('hist-sr-' + exIdx + '-' + sIdx);
+        const eEl = document.getElementById('hist-serr-' + exIdx + '-' + sIdx);
+        if (wEl && wEl.classList) {
+          if (err.weight) wEl.classList.add('invalid');
+          else wEl.classList.remove('invalid');
+        }
+        if (rEl && rEl.classList) {
+          if (err.reps) rEl.classList.add('invalid');
+          else rEl.classList.remove('invalid');
+        }
+        if (eEl) {
+          const msg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          if ('textContent' in eEl) eEl.textContent = msg;
+          if (eEl.style) eEl.style.display = msg ? '' : 'none';
+        }
+      } catch (e) {}
+    }
+
+    /* P2-02 validation on the draft (canonical kg, like the live logger).
+       Invalid values are never written to the draft model. */
+    function updateHistSetVal(exIdx, sIdx, field, val) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx] || !editingHistDraft.exercises[exIdx].sets[sIdx]) return false;
+      const draft = editingHistDraft.exercises[exIdx].sets[sIdx];
+      if (val === '' || val === null || val === undefined) {
+        draft[field] = '';
+        clearHistSetError(exIdx, sIdx, field);
+        paintHistSetRowError(exIdx, sIdx);
+        return true;
+      }
+      if (field === 'weight') {
+        const raw = parseFloat(val);
+        if (!isFinite(raw)) {
+          histSetFieldError(exIdx, sIdx, 'weight', 'Enter a number');
+          paintHistSetRowError(exIdx, sIdx);
+          return false;
+        }
+        const kg = fromInputWeight(val, state.unit);
+        const err = getWeightErrorKg(kg);
+        if (err) {
+          histSetFieldError(exIdx, sIdx, 'weight', err);
+          paintHistSetRowError(exIdx, sIdx);
+          return false;
+        }
+        draft[field] = kg;
+        clearHistSetError(exIdx, sIdx, 'weight');
+      } else {
+        const n = Number(val);
+        if (!isFinite(n)) {
+          histSetFieldError(exIdx, sIdx, 'reps', 'Enter a number');
+          paintHistSetRowError(exIdx, sIdx);
+          return false;
+        }
+        const err = getRepsError(n);
+        if (err) {
+          histSetFieldError(exIdx, sIdx, 'reps', err);
+          paintHistSetRowError(exIdx, sIdx);
+          return false;
+        }
+        draft[field] = n;
+        clearHistSetError(exIdx, sIdx, 'reps');
+      }
+      paintHistSetRowError(exIdx, sIdx);
+      return true;
+    }
+
+    /* Blur/enter normalisation (display rounding). In-place only, like the
+       live logger: never rebuilds, so the next tapped box survives. */
+    function histSetFieldChange(exIdx, sIdx) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx] || !editingHistDraft.exercises[exIdx].sets[sIdx]) return false;
+      const s = editingHistDraft.exercises[exIdx].sets[sIdx];
+      try {
+        const wEl = document.getElementById('hist-sw-' + exIdx + '-' + sIdx);
+        if (wEl && 'value' in wEl && s.weight !== '' && s.weight !== null && s.weight !== undefined) {
+          wEl.value = formatDisplayWeight(s.weight);
+        }
+        const rEl = document.getElementById('hist-sr-' + exIdx + '-' + sIdx);
+        if (rEl && 'value' in rEl && s.reps !== '' && s.reps !== null && s.reps !== undefined) {
+          rEl.value = String(Number(s.reps));
+        }
+      } catch (e) {}
+      paintHistSetRowError(exIdx, sIdx);
+      return true;
+    }
+
+    /* Structural edit actions: these rebuild the list (taps, not typing). */
+    function histCycleSetType(exIdx, sIdx) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx] || !editingHistDraft.exercises[exIdx].sets[sIdx]) return false;
+      const order = ['N', 'W', 'D', 'F'];
+      const cur = normSetType(editingHistDraft.exercises[exIdx].sets[sIdx].type);
+      editingHistDraft.exercises[exIdx].sets[sIdx].type = order[(order.indexOf(cur) + 1) % order.length];
+      renderHistEdit();
+      return true;
+    }
+
+    function addHistSet(exIdx) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx]) return false;
+      editingHistDraft.exercises[exIdx].sets.push({ type: 'N', weight: '', reps: '', done: true });
+      renderHistEdit();
+      return true;
+    }
+
+    function removeHistSet(exIdx, sIdx) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx]) return false;
+      const sets = editingHistDraft.exercises[exIdx].sets || [];
+      if (!sets[sIdx]) return false;
+      sets.splice(sIdx, 1);
+      const next = {};
+      Object.keys(histEditErrors).forEach(k => {
+        const parts = String(k).split(':');
+        if (parts[0] !== String(exIdx)) { next[k] = histEditErrors[k]; return; }
+        const i = Number(parts[1]);
+        if (i === sIdx) return;
+        next[exIdx + ':' + (i > sIdx ? i - 1 : i)] = histEditErrors[k];
+      });
+      histEditErrors = next;
+      renderHistEdit();
+      return true;
+    }
+
+    function removeHistExercise(exIdx) {
+      if (!editingHistDraft || !editingHistDraft.exercises[exIdx]) return false;
+      editingHistDraft.exercises.splice(exIdx, 1);
+      histEditErrors = {};
+      renderHistEdit();
+      return true;
+    }
+
+    function saveHistEdit() {
+      if (!editingHistDraft || editingHistId == null) return false;
+      const idx = state.history.findIndex(w => w && String(w.id) === String(editingHistId));
+      if (idx < 0) return false;
+      const d = editingHistDraft;
+      histEditErrors = {};
+      let bad = 0;
+      (d.exercises || []).forEach((ex, ei) => {
+        (ex.sets || []).forEach((s, si) => {
+          const wErr = getWeightErrorKg(s.weight);
+          const rErr = getRepsError(s.reps);
+          if (wErr || rErr) {
+            histSetFieldError(ei, si, 'weight', wErr);
+            histSetFieldError(ei, si, 'reps', rErr);
+            bad++;
+          }
+        });
+      });
+      const kept = (d.exercises || []).filter(ex => ex && Array.isArray(ex.sets) && ex.sets.length > 0);
+      if (kept.length === 0) {
+        alert('Add at least one set before saving.');
+        return false;
+      }
+      if (bad > 0) {
+        renderHistEdit();
+        alert('Fix the highlighted sets before saving.');
+        return false;
+      }
+      const w = state.history[idx];
+      w.title = String(d.title || '').trim() || 'Workout';
+      const dt = Number(d.date);
+      w.date = (isFinite(dt) && dt > 0) ? Math.min(dt, Date.now()) : w.date;
+      w.durationSec = Math.max(0, Math.round(Number(d.durationSec) || 0));
+      w.exercises = kept.map(ex => ({
+        exId: ex.exId,
+        note: String(ex.note || '').slice(0, 140),
+        sets: ex.sets.map(s => ({ type: normSetType(s.type), weight: Number(s.weight), reps: Number(s.reps), done: true }))
+      }));
+      const score = scoreHistExercises(w.exercises, w.id);
+      w.totalVolume = score.totalVolume;
+      w.totalSets = score.totalSets;
+      w.prCount = score.prCount;
+      editingHistId = null;
+      editingHistDraft = null;
+      histEditErrors = {};
+      saveState();
+      closeModal('histEditModal');
+      renderHistory();
+      renderProfileStats();
+      return true;
+    }
+
+    /* ---- Delete with app-modal confirm + 10s Undo (P2-04 routine pattern) ---- */
+
+    function askDeleteHist(id) {
+      const w = findHistEntry(id);
+      if (!w) return false;
+      pendingDeleteHistId = w.id;
+      document.getElementById('deleteHistText').textContent = 'Delete "' + w.title + '"? This cannot be undone.';
+      document.getElementById('deleteHistModal').classList.add('open');
+      return true;
+    }
+
+    function cancelDeleteHist() {
+      pendingDeleteHistId = null;
+      closeModal('deleteHistModal');
+      return false;
+    }
+
+    function confirmDeleteHist() {
+      const id = pendingDeleteHistId;
+      pendingDeleteHistId = null;
+      closeModal('deleteHistModal');
+      if (id == null) return false;
+      const idx = state.history.findIndex(w => w && String(w.id) === String(id));
+      if (idx < 0) return false;
+      const removed = state.history.splice(idx, 1)[0];
+      deletedHistBackup = {
+        workout: removed,
+        index: Math.min(idx, state.history.length),
+        expiresAt: Date.now() + 10000
+      };
+      try { if (deletedHistTimer) clearTimeout(deletedHistTimer); } catch (e) {}
+      try { deletedHistTimer = setTimeout(function () { expireDeletedHist(); }, 10000); } catch (e) {}
+      if (histDetailId != null && String(histDetailId) === String(id)) {
+        histDetailId = null;
+        closeModal('histDetailModal');
+      }
+      saveState();
+      renderHistory();
+      renderProfileStats();
+      return true;
+    }
+
+    function undoDeleteHist() {
+      if (!deletedHistBackup) return false;
+      state.history.splice(Math.min(deletedHistBackup.index, state.history.length), 0, deletedHistBackup.workout);
+      deletedHistBackup = null;
+      try { if (deletedHistTimer) clearTimeout(deletedHistTimer); } catch (e) {}
+      deletedHistTimer = null;
+      saveState();
+      renderHistory();
+      renderProfileStats();
+      return true;
+    }
+
+    function expireDeletedHist(now) {
+      if (!deletedHistBackup) return false;
+      const t = (typeof now === 'number') ? now : Date.now();
+      if (t < deletedHistBackup.expiresAt) return false;
+      deletedHistBackup = null;
+      deletedHistTimer = null;
+      renderHistory();
+      return true;
+    }
+
+    /* ---- Repeat + save as routine ---- */
+
+    function startHistWorkout(id) {
+      const w = findHistEntry(id);
+      if (!w) return false;
+      const hasSaved = !!loadActiveSessionDraft();
+      if (activeWorkout || hasSaved) {
+        pendingStartFn = function () { doStartHistWorkout(id); };
+        showResumeModal('start-new');
+        return 'confirm';
+      }
+      return doStartHistWorkout(id);
+    }
+
+    function doStartHistWorkout(id) {
+      const w = findHistEntry(id);
+      if (!w || !Array.isArray(w.exercises)) return false;
+      histDetailId = null;
+      closeModal('histDetailModal');
+      const seenInst = {};
+      activeWorkout = {
+        title: w.title || 'Workout',
+        startTime: Date.now(),
+        finishing: false,
+        routineId: null,
+        exercises: (w.exercises || []).map(item => {
+          const inst = seenInst[item.exId] || 0;
+          seenInst[item.exId] = inst + 1;
+          const laneCount = {};
+          const sets = (item.sets || []).map(s => {
+            // P2-08: repeat keeps each set's type as well as the count.
+            const t = normSetType(s && s.type);
+            const lane = laneCount[t] || 0;
+            laneCount[t] = lane + 1;
+            const prev = getPreviousSet(item.exId, lane, t, inst, null);
+            return { type: t, weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false };
+          });
+          // History stores no per-exercise rest; fall back to the default.
+          return { exId: item.exId, sets, restSec: (state.defaultRest || 90), note: String(item.note || '').slice(0, 140) };
+        })
+      };
+      openWorkoutDrawer();
+      return true;
+    }
+
+    function saveHistAsRoutine(id) {
+      const w = findHistEntry(id);
+      if (!w || !Array.isArray(w.exercises) || w.exercises.length === 0) return false;
+      const names = new Set(state.routines.map(r => r.name));
+      const base = (w.title || 'Workout') + ' (from history)';
+      let name = base;
+      let n = 2;
+      while (names.has(name)) name = (w.title || 'Workout') + ' (from history ' + (n++) + ')';
+      state.routines.unshift({
+        id: 'rt_' + Date.now(),
+        name,
+        exercises: w.exercises.map(item => normalizeRoutineItem({
+          exId: item.exId,
+          sets: Math.max(1, (item.sets || []).length),
+          // P2-08: save-as-routine keeps each set's type as well as the count.
+          setTypes: (item.sets || []).map(s => normSetType(s && s.type)),
+          restSec: (state.defaultRest || 90),
+          note: item.note || ''
+        }))
+      });
+      saveState();
+      renderRoutines();
+      return true;
     }
 
     /* PROFILE & ANALYTICS */
@@ -3514,6 +4227,9 @@
       if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
       if (data.prevScope !== 'same' && data.prevScope !== 'any') data.prevScope = 'any';
       data.plateSettings = normalizePlateSettings(data.plateSettings);
+      // P2-08: old backups without workout ids get them on the migrated copy,
+      // so the id check below passes for everything backfillable.
+      ensureHistoryIds(data.history);
 
       const seenEx = {};
       for (let i = 0; i < data.exercises.length; i++) {
@@ -3543,6 +4259,17 @@
           const n = restoreNum(item.sets);
           if (!isFinite(n) || Math.floor(n) !== n || n < 1 || n > 1000) {
             return { ok: false, error: 'Invalid set count for exercise "' + item.exId + '" in routine "' + rt.id + '" (expected a whole number 1-1000). Nothing was changed.' };
+          }
+          // P2-08: optional per-set types (history-made routines); coerced on load.
+          if (item.setTypes !== undefined && item.setTypes !== null) {
+            if (!Array.isArray(item.setTypes) || item.setTypes.length > 50) {
+              return { ok: false, error: 'Invalid set types in routine "' + rt.id + '" (expected an array of up to 50). Nothing was changed.' };
+            }
+            for (let ti = 0; ti < item.setTypes.length; ti++) {
+              if (typeof item.setTypes[ti] !== 'string') {
+                return { ok: false, error: 'Invalid set type in routine "' + rt.id + '" (index ' + ti + '). Nothing was changed.' };
+              }
+            }
           }
           if (!seenEx[item.exId]) noteUnknown(item.exId);
         }
@@ -3676,6 +4403,7 @@
       state = pendingRestore;
       pendingRestore = null;
       normalizeExercises(state);
+      ensureHistoryIds(state.history);
       if (!state.unit) state.unit = 'KG';
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       saveState();
