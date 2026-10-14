@@ -91,7 +91,7 @@ See the [video index](../research/VIDEO_REFERENCE_INDEX.md) for source IDs and e
 
 ### P1-05 reference
 
-- **First-run onboarding/import/recovery — Not demonstrated in V1/V2; now demonstrated in V3 (owner's local Hevy Android first-run recording, 2026-10-14, 1:23, kept locally, no URL; cite as "V3 MM:SS").** Both public recordings use existing accounts. Use the [personal milestones](../MASTER_PLAN.md) and P0-03/04 criteria for import/recovery.
+- **First-run onboarding/import/recovery — Not demonstrated in V1/V2; now demonstrated in V3 (owner's local Hevy Android first-run recording, 2026-10-14, 1:23, file `E:/My Apps/Workout-engine/assets/videos/V3-hevy-first-run-2026-10-14.mp4`; cite as "V3 MM:SS").** Both public recordings use existing accounts. Use the [personal milestones](../MASTER_PLAN.md) and P0-03/04 criteria for import/recovery.
 - **Health Connect permission prompt — Shown (not adopted):** V3 00:09–00:11 ("Enable permissions so Hevy can report data about your workouts and measurements", Enable Health Connect / Not Now); OS-level Health Connect read/write grants at V3 00:00–00:09 are a setting/permission screen only. Deferred to P4; see [P4-06](./04_TRUST_INTEGRATIONS.md#p4-06-reference).
 - **Birthday picker — Shown:** V3 00:11–00:13 (day/month/year picker, private-and-secure note, Continue). Adopt as birthday or age (optional), stored locally per P5-04.
 - **Height with cm / ft-in toggle — Shown:** V3 00:13–00:15 (Centimeters / Feet and Inches toggle with scroll picker). Adopt with the same unit choice; stored locally per P5-04.
@@ -138,7 +138,7 @@ See the [video index](../research/VIDEO_REFERENCE_INDEX.md) for source IDs and e
 - [../research/HEVY_AUDIT.md](../research/HEVY_AUDIT.md): original UI audit and reference boundaries.
 - Create original icons/demonstrations or obtain licenses; no competitor asset pack is part of this repository.
 - [V2 review](https://www.youtube.com/watch?v=CkYBAlBrAAw); use the task-specific scene links above and [video index](../research/VIDEO_REFERENCE_INDEX.md).
-- V3: owner's local screen recording of the Hevy Android first-run, 2026-10-14, 1:23, kept locally only (no URL; cite as "V3 MM:SS"). Full timeline in the [video index](../research/VIDEO_REFERENCE_INDEX.md).
+- V3: owner's local screen recording of the Hevy Android first-run, 2026-10-14, 1:23. **File: `E:/My Apps/Workout-engine/assets/videos/V3-hevy-first-run-2026-10-14.mp4`** (on the owner's PC; `assets/videos/` is git-ignored, so the video is never published). Cite as "V3 MM:SS". Full timeline in the [video index](../research/VIDEO_REFERENCE_INDEX.md).
 
 ## Next Immediate Action
 

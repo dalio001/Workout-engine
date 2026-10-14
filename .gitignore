@@ -1,3 +1,5 @@
 .chrome-profile/
 .chrome-profile-capture/
 shots/
+# Reference videos stay on the owner's PC (competitor footage, large files); paths are cited in the pillars
+assets/videos/

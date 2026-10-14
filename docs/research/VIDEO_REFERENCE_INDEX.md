@@ -8,7 +8,7 @@ Verified on **2026-10-14**. Use a task's **Feature references** link in its pill
 | --- | --- | --- | --- | --- |
 | V1 | [Hevy App Review — Important Things To Know](https://www.youtube.com/watch?v=8ESngufwx6g) | Knowledge By Marcus / 2024-12-04 | 4:35 | Full native captions, 32 overview frames, 20 targeted timestamp checks |
 | V2 | [I Tried Hevy for 7 Days — Is It Actually the Best Gym App?](https://www.youtube.com/watch?v=CkYBAlBrAAw) | Home Gym Gains / 2026-07-28 | 12:31 | Full native captions, 48 overview frames, 44 targeted timestamp checks |
-| V3 | Owner's local screen recording of the Hevy Android first-run, 2026-10-14 (kept locally only; no URL; cite as "V3 MM:SS") | Owner / 2026-10-14 | 1:23 | Supervisor-verified timeline from frames; video and frames are not committed |
+| V3 | Owner's local screen recording of the Hevy Android first-run, 2026-10-14 (file `E:/My Apps/Workout-engine/assets/videos/V3-hevy-first-run-2026-10-14.mp4` on the owner's PC; `assets/videos/` is git-ignored; cite as "V3 MM:SS") | Owner / 2026-10-14 | 1:23 | Supervisor-verified timeline from frames; video and frames are not committed |
 
 The visual review is sampled with focused seeks, not continuous frame-by-frame playback. V2's chapter labels were checked against captions and visible scenes; some feature UI appears outside its nominal chapter. Use the feature ranges below instead of relying on chapter titles alone. Temporary video/frame files are not committed or redistributed.
 
