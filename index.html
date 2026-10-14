@@ -460,6 +460,23 @@
             <option value="same">Same routine only</option>
           </select>
         </div>
+        <div style="font-weight:700; font-size:14px; margin-bottom:8px;">Barbell plates</div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Bar weight (KG)</span>
+          <input type="number" id="plateBarKgInput" class="set-input" style="width:80px;" value="20" onchange="savePlateSettings()">
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Bar weight (LB)</span>
+          <input type="number" id="plateBarLbInput" class="set-input" style="width:80px;" value="45" onchange="savePlateSettings()">
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:14px; margin-bottom:4px;">Plates available (KG, comma-separated)</div>
+          <input type="text" id="platePlatesKgInput" class="input-field" value="25, 20, 15, 10, 5, 2.5, 1.25" onchange="savePlateSettings()">
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:14px; margin-bottom:4px;">Plates available (LB, comma-separated)</div>
+          <input type="text" id="platePlatesLbInput" class="input-field" value="45, 35, 25, 10, 5, 2.5" onchange="savePlateSettings()">
+        </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn" style="flex:1;" onclick="exportData()">📤 Backup JSON</button>
           <button class="btn" style="flex:1;" onclick="document.getElementById('importInput').click()">📥 Restore JSON</button>
@@ -634,6 +651,23 @@
       </div>
       <div class="modal-body">
         <div id="restPickerList" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SET MENU (P2-05 personal part): type directly or remove the set -->
+  <div class="modal" id="setMenuModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span>Set</span>
+        <button class="btn" onclick="closeSetMenu()">✕</button>
+      </div>
+      <div class="modal-body">
+        <button class="btn btn-block" onclick="setSetTypeFromMenu('W')">Warm-up</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="setSetTypeFromMenu('N')">Normal</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="setSetTypeFromMenu('F')">Failure</button>
+        <button class="btn btn-block" style="margin-top:10px;" onclick="setSetTypeFromMenu('D')">Drop</button>
+        <button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="removeSetFromMenu()">Remove set</button>
       </div>
     </div>
   </div>
@@ -834,6 +868,7 @@
       parsed.schemaVersion = SCHEMA_VERSION;
       if (!parsed.unit) parsed.unit = 'KG';
       if (parsed.prevScope !== 'same' && parsed.prevScope !== 'any') parsed.prevScope = 'any';
+      parsed.plateSettings = normalizePlateSettings(parsed.plateSettings);
       return parsed;
     }
 
@@ -861,6 +896,18 @@
     let pendingRoutineUpdate = null;
     let restPickerMode = 'workout';
     let builderRestTarget = null;
+    /* P2-05 set actions (personal part): set-menu target, replace-picker
+       target exercise, single-set undo snapshot. */
+    let setMenuTarget = null;
+    let replaceTargetIdx = null;
+    let deletedSetBackup = null;
+    let deletedSetTimer = null;
+    /* P2-05 plate calculator (personal part): editable bar/plates per unit. */
+    const DEFAULT_PLATE_SETTINGS = {
+      barKg: 20, barLb: 45,
+      platesKg: [25, 20, 15, 10, 5, 2.5, 1.25],
+      platesLb: [45, 35, 25, 10, 5, 2.5]
+    };
     // NOTE: storage keys 'hevy_clone_state' and 'hevy_clone_active_session' are
     // intentionally NOT renamed: renaming them would delete the owner's saved workouts.
     const ACTIVE_SESSION_KEY = 'hevy_clone_active_session';
@@ -896,6 +943,7 @@
       // A saved state that intentionally holds an empty array keeps it empty.
       applySeedDefaults(state, hadSavedState);
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
+      state.plateSettings = normalizePlateSettings(state.plateSettings);
 
       document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
       document.getElementById('defaultRestInput').value = state.defaultRest || 90;
@@ -992,6 +1040,12 @@
       };
       setInputErrors = {};
       finishReviewPending = false;
+      setMenuTarget = null;
+      replaceTargetIdx = null;
+      pickerTarget = 'workout';
+      deletedSetBackup = null;
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      deletedSetTimer = null;
       restDeadline = (typeof draft.restDeadline === 'number' && draft.restDeadline > Date.now()) ? draft.restDeadline : null;
       restRemaining = restDeadline ? Math.max(0, Math.ceil((restDeadline - Date.now()) / 1000)) : 0;
       document.getElementById('activeWorkoutTitle').value = activeWorkout.title;
@@ -1052,6 +1106,12 @@
       setInputErrors = {};
       finishReviewPending = false;
       restPickerTarget = null;
+      setMenuTarget = null;
+      replaceTargetIdx = null;
+      pickerTarget = 'workout';
+      deletedSetBackup = null;
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      deletedSetTimer = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
       const bar = document.getElementById('restTimerBar');
@@ -1736,6 +1796,12 @@
       setInputErrors = {};
       finishReviewPending = false;
       restPickerTarget = null;
+      setMenuTarget = null;
+      replaceTargetIdx = null;
+      pickerTarget = 'workout';
+      deletedSetBackup = null;
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      deletedSetTimer = null;
       document.getElementById('activeWorkoutTitle').value = activeWorkout.title;
       document.getElementById('activeWorkoutDrawer').classList.add('open');
       document.getElementById('minimizedWorkoutBar').style.display = 'none';
@@ -1772,6 +1838,19 @@
       const container = document.getElementById('activeExercisesContainer');
       container.innerHTML = '';
 
+      // P2-05: removed-set Undo banner (5 s, in-memory only; reload drops it).
+      if (deletedSetBackup) {
+        const banner = document.createElement('div');
+        banner.className = 'card';
+        banner.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+            <span style="font-size:14px;">Set removed.</span>
+            <button class="btn" style="padding:6px 12px; font-size:13px;" onclick="undoRemoveSet()">↩️ Undo (5s)</button>
+          </div>
+        `;
+        container.appendChild(banner);
+      }
+
       activeWorkout.exercises.forEach((exItem, exIdx) => {
         const exInfo = state.exercises.find(e => e.id === exItem.exId) || { name: 'Exercise', muscle: '' };
         const block = document.createElement('div');
@@ -1803,40 +1882,158 @@
 
           setsHtml += `
             <div class="set-row ${s.done ? 'done' : ''}">
-              <button class="set-type-btn set-type-${s.type}" onclick="cycleSetType(${exIdx}, ${sIdx})">${label}</button>
+              <button class="set-type-btn set-type-${s.type}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
               <div class="prev-text" onclick="copyPreviousIntoSet(${exIdx}, ${sIdx})">${prevStr}</div>
-              <input type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)">
-              <input type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="${repsPh}" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)">
+              <input id="set-w-${exIdx}-${sIdx}" type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)" onchange="handleSetFieldChange(${exIdx}, ${sIdx})">
+              <input id="set-r-${exIdx}-${sIdx}" type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="${repsPh}" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)" onchange="handleSetFieldChange(${exIdx}, ${sIdx})">
               <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
-              ${rowMsg ? `<div class="set-error">${rowMsg}</div>` : ''}
+              <div id="set-err-${exIdx}-${sIdx}" class="set-error"${rowMsg ? '' : ' style="display:none;"'}>${rowMsg}</div>
             </div>
           `;
         });
 
         const restSec = getExerciseRestSec(exIdx);
+        const noteEsc = String(exItem.note || '').replace(/"/g, '&quot;');
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
               <div class="ex-name">${exInfo.name}</div>
-              ${exItem.note ? `<div style="font-size:12px; color:var(--text-sub); margin-top:2px;">${exItem.note}</div>` : ''}
               <span class="badge">${exInfo.muscle}</span>
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
+              <button class="btn" style="margin-left:6px; padding:4px 8px; font-size:12px;" title="Plate calculator" onclick="openPlateCalcFor(${exIdx})">🧮</button>
             </div>
             <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeActiveEx(${exIdx})">✕</button>
           </div>
+          <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" onchange="updateActiveNote(${exIdx}, this.value)">
           ${setsHtml}
           <button class="btn btn-block" style="margin-top:8px; padding:8px;" onclick="addSetToActive(${exIdx})">+ Add Set</button>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button class="btn" style="flex:1; min-height:44px;" onclick="moveActiveEx(${exIdx}, -1)">▲ Up</button>
+            <button class="btn" style="flex:1; min-height:44px;" onclick="moveActiveEx(${exIdx}, 1)">▼ Down</button>
+            <button class="btn" style="flex:1; min-height:44px;" onclick="openReplacePicker(${exIdx})">⇄ Replace</button>
+          </div>
         `;
         container.appendChild(block);
       });
       saveActiveSession();
     }
 
+    /* P2-05 set menu (personal part): tap the set number to pick a type
+       directly or remove the set. cycleSetType kept for compatibility. */
+    function openSetMenu(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return;
+      setMenuTarget = { exIdx, sIdx };
+      document.getElementById('setMenuModal').classList.add('open');
+    }
+
+    function closeSetMenu() {
+      setMenuTarget = null;
+      document.getElementById('setMenuModal').classList.remove('open');
+    }
+
+    function setSetType(exIdx, sIdx, type) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
+      if (['N', 'W', 'D', 'F'].indexOf(type) < 0) return false;
+      activeWorkout.exercises[exIdx].sets[sIdx].type = type;
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    function setSetTypeFromMenu(type) {
+      const t = setMenuTarget;
+      closeSetMenu();
+      if (!t) return false;
+      return setSetType(t.exIdx, t.sIdx, type);
+    }
+
+    function removeSetFromMenu() {
+      const t = setMenuTarget;
+      closeSetMenu();
+      if (!t) return false;
+      removeActiveSet(t.exIdx, t.sIdx);
+      return true;
+    }
+
     function cycleSetType(exIdx, sIdx) {
       const order = ['N', 'W', 'D', 'F'];
       const cur = activeWorkout.exercises[exIdx].sets[sIdx].type;
       const next = order[(order.indexOf(cur) + 1) % order.length];
-      activeWorkout.exercises[exIdx].sets[sIdx].type = next;
+      return setSetType(exIdx, sIdx, next);
+    }
+
+    /* P2-05 remove one set (personal part): 5-second in-memory Undo. */
+    function removeActiveSet(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      const sets = activeWorkout.exercises[exIdx].sets || [];
+      if (!sets[sIdx]) return false;
+      const removed = sets.splice(sIdx, 1)[0];
+      const next = {};
+      Object.keys(setInputErrors).forEach(k => {
+        const parts = String(k).split(':');
+        if (parts[0] !== String(exIdx)) { next[k] = setInputErrors[k]; return; }
+        const i = Number(parts[1]);
+        if (i === sIdx) return;
+        next[exIdx + ':' + (i > sIdx ? i - 1 : i)] = setInputErrors[k];
+      });
+      setInputErrors = next;
+      deletedSetBackup = { exIdx, sIdx, set: removed, expiresAt: Date.now() + 5000 };
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      try { deletedSetTimer = setTimeout(function () { expireDeletedSet(); }, 5000); } catch (e) {}
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    function undoRemoveSet() {
+      if (!deletedSetBackup || !activeWorkout) return false;
+      const b = deletedSetBackup;
+      const ex = activeWorkout.exercises[b.exIdx];
+      if (ex && Array.isArray(ex.sets)) ex.sets.splice(Math.min(b.sIdx, ex.sets.length), 0, b.set);
+      deletedSetBackup = null;
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      deletedSetTimer = null;
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    function expireDeletedSet(now) {
+      if (!deletedSetBackup) return;
+      const t = (typeof now === 'number') ? now : Date.now();
+      if (t < deletedSetBackup.expiresAt) return;
+      deletedSetBackup = null;
+      deletedSetTimer = null;
+      if (activeWorkout) renderActiveWorkout();
+    }
+
+    /* P2-05 input-focus fix: paint one row's error state in place without
+       rebuilding the list, so the focused box and keyboard survive typing. */
+    function paintSetRowError(exIdx, sIdx) {
+      try {
+        const key = exIdx + ':' + sIdx;
+        const err = setInputErrors[key] || { weight: '', reps: '' };
+        const wEl = document.getElementById('set-w-' + exIdx + '-' + sIdx);
+        const rEl = document.getElementById('set-r-' + exIdx + '-' + sIdx);
+        const eEl = document.getElementById('set-err-' + exIdx + '-' + sIdx);
+        if (wEl && wEl.classList) {
+          if (err.weight) wEl.classList.add('invalid');
+          else wEl.classList.remove('invalid');
+        }
+        if (rEl && rEl.classList) {
+          if (err.reps) rEl.classList.add('invalid');
+          else rEl.classList.remove('invalid');
+        }
+        if (eEl) {
+          const msg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          if ('textContent' in eEl) eEl.textContent = msg;
+          if (eEl.style) eEl.style.display = msg ? '' : 'none';
+        }
+      } catch (e) {}
+    }
+
+    /* P2-05: blur/enter normalisation (display rounding) after typing is done. */
+    function handleSetFieldChange(exIdx, sIdx) {
       renderActiveWorkout();
       saveActiveSession();
     }
@@ -1847,7 +2044,7 @@
       if (val === '' || val === null || val === undefined) {
         activeWorkout.exercises[exIdx].sets[sIdx][field] = '';
         clearSetError(exIdx, sIdx, field);
-        renderActiveWorkout();
+        paintSetRowError(exIdx, sIdx);
         saveActiveSession();
         return;
       }
@@ -1856,7 +2053,7 @@
         const raw = parseFloat(val);
         if (!isFinite(raw)) {
           setFieldError(exIdx, sIdx, 'weight', 'Enter a number');
-          renderActiveWorkout();
+          paintSetRowError(exIdx, sIdx);
           saveActiveSession();
           return;
         }
@@ -1865,7 +2062,7 @@
         if (err) {
           // Nothing invalid is saved to the set model.
           setFieldError(exIdx, sIdx, 'weight', err);
-          renderActiveWorkout();
+          paintSetRowError(exIdx, sIdx);
           saveActiveSession();
           return;
         }
@@ -1875,21 +2072,21 @@
         const n = Number(val);
         if (!isFinite(n)) {
           setFieldError(exIdx, sIdx, 'reps', 'Enter a number');
-          renderActiveWorkout();
+          paintSetRowError(exIdx, sIdx);
           saveActiveSession();
           return;
         }
         const err = getRepsError(n);
         if (err) {
           setFieldError(exIdx, sIdx, 'reps', err);
-          renderActiveWorkout();
+          paintSetRowError(exIdx, sIdx);
           saveActiveSession();
           return;
         }
         activeWorkout.exercises[exIdx].sets[sIdx][field] = n;
         clearSetError(exIdx, sIdx, 'reps');
       }
-      renderActiveWorkout();
+      paintSetRowError(exIdx, sIdx);
       saveActiveSession();
     }
 
@@ -1934,6 +2131,69 @@
       activeWorkout.exercises.splice(exIdx, 1);
       renderActiveWorkout();
       saveActiveSession();
+    }
+
+    /* P2-05 reorder exercises during a workout (personal part). */
+    function moveActiveEx(exIdx, delta) {
+      if (!activeWorkout || !Array.isArray(activeWorkout.exercises)) return false;
+      const j = exIdx + delta;
+      if (j < 0 || j >= activeWorkout.exercises.length) return false;
+      const m = activeWorkout.exercises.splice(exIdx, 1)[0];
+      activeWorkout.exercises.splice(j, 0, m);
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    /* P2-05 replace an exercise (personal part): same set count, fresh
+       empty Normal sets by default; keepValues copies old values per index. */
+    function openReplacePicker(exIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return;
+      pickerTarget = 'replace';
+      replaceTargetIdx = exIdx;
+      document.getElementById('pickerSearch').value = '';
+      renderPickerList();
+      document.getElementById('exPickerModal').classList.add('open');
+    }
+
+    function replaceActiveEx(exIdx, newExId, keepValues) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      if (typeof newExId !== 'string' || !newExId) return false;
+      const ex = activeWorkout.exercises[exIdx];
+      const count = Math.max(1, (ex.sets || []).length);
+      const old = (ex.sets || []).map(s => ({ weight: s.weight, reps: s.reps }));
+      const sets = [];
+      for (let i = 0; i < count; i++) {
+        sets.push({
+          type: 'N',
+          weight: (keepValues && old[i]) ? old[i].weight : '',
+          reps: (keepValues && old[i]) ? old[i].reps : '',
+          done: false
+        });
+      }
+      activeWorkout.exercises[exIdx] = {
+        exId: newExId,
+        sets,
+        restSec: (typeof ex.restSec === 'number' && isFinite(ex.restSec) && ex.restSec >= 0)
+          ? ex.restSec : (state.defaultRest || 90),
+        note: ''
+      };
+      const prefix = exIdx + ':';
+      Object.keys(setInputErrors).forEach(k => {
+        if (String(k).indexOf(prefix) === 0) delete setInputErrors[k];
+      });
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    /* P2-05 short note per exercise in the workout (personal part). */
+    function updateActiveNote(exIdx, val) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      activeWorkout.exercises[exIdx].note = String(val || '').slice(0, 140);
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
     }
 
     /* REST TIMER & AUDIO BEEP */
@@ -2049,8 +2309,10 @@
       if (!activeWorkout || activeWorkout.finishing) return;
       // P2-02: only valid ticked sets are saved; volume is clamped so it can
       // never go negative (e.g. legacy -5 kg rows).
+      // P2-05: the per-exercise workout note is saved with the workout.
       const completedExercises = activeWorkout.exercises.map(ex => ({
         exId: ex.exId,
+        note: String(ex.note || '').slice(0, 140),
         sets: ex.sets.filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0)
       })).filter(ex => ex.sets.length > 0);
 
@@ -2148,6 +2410,12 @@
       setInputErrors = {};
       finishReviewPending = false;
       restPickerTarget = null;
+      setMenuTarget = null;
+      replaceTargetIdx = null;
+      pickerTarget = 'workout';
+      deletedSetBackup = null;
+      try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
+      deletedSetTimer = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
       if (bar) bar.classList.remove('active');
@@ -2203,10 +2471,18 @@
         activeWorkout.exercises.push({
           exId,
           restSec: (state.defaultRest || 90),
+          note: '',
           sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
         });
         renderActiveWorkout();
         saveActiveSession();
+      } else if (pickerTarget === 'replace' && activeWorkout) {
+        const idx = replaceTargetIdx;
+        pickerTarget = 'workout';
+        replaceTargetIdx = null;
+        closeModal('exPickerModal');
+        if (idx !== null && idx !== undefined) replaceActiveEx(idx, exId, false);
+        return;
       } else if (pickerTarget === 'routine') {
         tempRoutineExercises.push(normalizeRoutineItem({ exId, sets: 3 }));
         renderRoutineBuilderList();
@@ -2267,11 +2543,15 @@
         const exSummary = w.exercises.map(item => {
           const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
           const bestSet = item.sets.reduce((acc, s) => (s.weight * s.reps > acc.weight * acc.reps ? s : acc), item.sets[0]);
+          const noteLine = item.note
+            ? `<div style="font-size:12px; color:var(--text-sub); padding:1px 0;">📝 ${item.note}</div>`
+            : '';
           return `
             <div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0;">
               <span><b>${item.sets.length} ×</b> ${ex.name} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
               <span style="color:var(--text-sub);">Best: ${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}</span>
             </div>
+            ${noteLine}
           `;
         }).join('');
 
@@ -2304,6 +2584,15 @@
       document.getElementById('statSets').innerText = totalSets;
       const scopeSel = document.getElementById('prevScopeSelect');
       if (scopeSel) scopeSel.value = getPrevScope();
+      const ps = getPlateSettings();
+      const bkEl = document.getElementById('plateBarKgInput');
+      if (bkEl) bkEl.value = ps.barKg;
+      const blEl = document.getElementById('plateBarLbInput');
+      if (blEl) blEl.value = ps.barLb;
+      const pkEl = document.getElementById('platePlatesKgInput');
+      if (pkEl) pkEl.value = ps.platesKg.join(', ');
+      const plEl = document.getElementById('platePlatesLbInput');
+      if (plEl) plEl.value = ps.platesLb.join(', ');
 
       const counts = { Chest: 0, Back: 0, Legs: 0, Shoulders: 0, Arms: 0, Core: 0 };
       state.history.forEach(w => {
@@ -2337,42 +2626,121 @@
       saveState();
     }
 
+    /* P2-05 plate settings: pure normalization, defaults win on missing/invalid. */
+    function normalizePlateSettings(src) {
+      const d = DEFAULT_PLATE_SETTINGS;
+      const out = { barKg: d.barKg, barLb: d.barLb, platesKg: d.platesKg.slice(), platesLb: d.platesLb.slice() };
+      if (src && typeof src === 'object') {
+        const bk = Number(src.barKg);
+        if (isFinite(bk) && bk > 0 && bk <= 1000) out.barKg = bk;
+        const bl = Number(src.barLb);
+        if (isFinite(bl) && bl > 0 && bl <= 1000) out.barLb = bl;
+        ['platesKg', 'platesLb'].forEach(k => {
+          if (Array.isArray(src[k])) {
+            const arr = src[k].map(Number).filter(n => isFinite(n) && n > 0 && n <= 1000).sort((a, b) => b - a);
+            if (arr.length) out[k] = arr;
+          }
+        });
+      }
+      return out;
+    }
+
+    function getPlateSettings() {
+      return normalizePlateSettings(state.plateSettings);
+    }
+
+    /* P2-05: pure plate math. Greedy largest-first per side, in display units.
+       Never rounds up: loadable <= target, remainder shown when not exact. */
+    function computePlates(targetDisplay, unit) {
+      const u = unit || state.unit || 'KG';
+      const ps = getPlateSettings();
+      const targetKg = fromInputWeight(targetDisplay, u);
+      const target = Number(toDisplayWeight(targetKg === '' ? 0 : targetKg, u)) || 0;
+      const bar = (u === 'KG') ? ps.barKg : ps.barLb;
+      const plates = ((u === 'KG') ? ps.platesKg : ps.platesLb).slice().sort((a, b) => b - a);
+      if (target < bar) {
+        return { unit: u, target, bar, plates, perSide: [], loadable: 0, remainder: 0, exact: false, under: true };
+      }
+      let perSide = (target - bar) / 2;
+      const perSidePlates = [];
+      plates.forEach(p => {
+        while (perSide + 1e-9 >= p) {
+          perSidePlates.push(p);
+          perSide = +(perSide - p).toFixed(4);
+        }
+      });
+      const loadedSide = perSidePlates.reduce((a, b) => a + Number(b), 0);
+      const loadable = +(bar + 2 * loadedSide).toFixed(4);
+      const remainder = +(target - loadable).toFixed(4);
+      return { unit: u, target, bar, plates, perSide: perSidePlates, loadable, remainder, exact: remainder <= 1e-9, under: false };
+    }
+
     /* PLATE CALCULATOR */
     function openPlateCalcModal() {
       document.getElementById('plateModal').classList.add('open');
       calculatePlates();
     }
 
-    function calculatePlates() {
-      const rawTarget = parseFloat(document.getElementById('plateTargetInput').value) || 0;
-      // Normalize through the shared helpers so typed/display rounding matches logging.
-      const targetKg = fromInputWeight(rawTarget, state.unit);
-      const target = Number(toDisplayWeight(targetKg === '' ? 0 : targetKg, state.unit)) || 0;
-      const bar = state.unit === 'KG' ? 20 : 45;
-      const plates = state.unit === 'KG' ? [25, 20, 15, 10, 5, 2.5, 1.25] : [45, 35, 25, 10, 5, 2.5];
-      const out = document.getElementById('plateResult');
+    /* P2-05: prefill the calculator from an exercise's first logged weight. */
+    function openPlateCalcFor(exIdx) {
+      const ex = activeWorkout && activeWorkout.exercises && activeWorkout.exercises[exIdx];
+      if (ex && Array.isArray(ex.sets)) {
+        for (let i = 0; i < ex.sets.length; i++) {
+          const s = ex.sets[i];
+          if (s && s.weight !== '' && s.weight !== null && s.weight !== undefined) {
+            document.getElementById('plateTargetInput').value = formatDisplayWeight(s.weight);
+            break;
+          }
+        }
+      }
+      openPlateCalcModal();
+    }
 
-      if (target <= bar) {
-        out.innerHTML = `Just the empty barbell (${bar} ${state.unit})`;
+    function calculatePlates() {
+      const raw = document.getElementById('plateTargetInput').value;
+      const r = computePlates(raw, state.unit);
+      const out = document.getElementById('plateResult');
+      const u = r.unit;
+
+      if (r.under) {
+        out.innerHTML = `Target ${r.target} ${u} is <b>less than the bar</b> (${r.bar} ${u}) — no plates.`;
         return;
       }
 
-      let perSide = (target - bar) / 2;
-      const loaded = [];
-      plates.forEach(p => {
-        while (perSide >= p) {
-          loaded.push(p);
-          perSide = +(perSide - p).toFixed(2);
-        }
-      });
+      const perSideHtml = r.perSide.length
+        ? r.perSide.map(p => `<span class="badge" style="font-size:14px; padding:6px 10px; background:var(--primary); color:#fff;">${p} ${u}</span>`).join('')
+        : '<span style="font-size:14px; color:var(--text-sub);">no plates — empty bar</span>';
+      const exactHtml = r.exact
+        ? `<div style="margin-top:6px;">✅ Exact — loads <b>${r.loadable} ${u}</b>.</div>`
+        : `<div style="margin-top:6px;">Closest loadable: <b>${r.loadable} ${u}</b> — remainder <b>${r.remainder} ${u}</b> (not exact; load as shown).</div>`;
 
       out.innerHTML = `
-        <div>Barbell: <b>${bar} ${state.unit}</b></div>
+        <div>Barbell: <b>${r.bar} ${u}</b> — target <b>${r.target} ${u}</b></div>
         <div style="margin-top:6px;">Load <b>per side</b>:</div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">
-          ${loaded.map(p => `<span class="badge" style="font-size:14px; padding:6px 10px; background:var(--primary); color:#fff;">${p} ${state.unit}</span>`).join('')}
+          ${perSideHtml}
         </div>
+        ${exactHtml}
       `;
+    }
+
+    /* P2-05: Profile plate preferences; invalid entries keep current values. */
+    function savePlateSettings() {
+      const ps = getPlateSettings();
+      const bk = parseFloat(document.getElementById('plateBarKgInput').value);
+      const bl = parseFloat(document.getElementById('plateBarLbInput').value);
+      if (isFinite(bk) && bk > 0 && bk <= 1000) ps.barKg = bk;
+      if (isFinite(bl) && bl > 0 && bl <= 1000) ps.barLb = bl;
+      const parsePlates = (id) => String(document.getElementById(id).value || '')
+        .split(',').map(s => parseFloat(s.trim()))
+        .filter(n => isFinite(n) && n > 0 && n <= 1000).sort((a, b) => b - a);
+      const kg = parsePlates('platePlatesKgInput');
+      const lb = parsePlates('platePlatesLbInput');
+      if (kg.length) ps.platesKg = kg;
+      if (lb.length) ps.platesLb = lb;
+      state.plateSettings = normalizePlateSettings(ps);
+      saveState();
+      renderProfileStats();
     }
 
     /* P0-03 + P4-01: SAFE RESTORE — validate before mutation, preview, undo.
@@ -2416,6 +2784,7 @@
       }
       if (!Array.isArray(target.history)) target.history = [];
       if (target.prevScope !== 'same' && target.prevScope !== 'any') target.prevScope = 'any';
+      target.plateSettings = normalizePlateSettings(target.plateSettings);
       return target;
     }
 
@@ -2450,6 +2819,7 @@
       if (!Array.isArray(data.exercises)) data.exercises = [];
       if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
       if (data.prevScope !== 'same' && data.prevScope !== 'any') data.prevScope = 'any';
+      data.plateSettings = normalizePlateSettings(data.plateSettings);
 
       const seenEx = {};
       for (let i = 0; i < data.exercises.length; i++) {
