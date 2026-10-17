@@ -24,6 +24,8 @@
       --warning: #f59e0b;
       --danger: #ef4444;
       --purple: #a855f7;
+      --lime: #84cc16;
+      --lime-bg: rgba(132, 204, 22, 0.18);
       --text: #f8fafc;
       --text-sub: #94a3b8;
     }
@@ -248,8 +250,38 @@
       margin: 0 auto;
     }
     .set-type-W { color: var(--warning); }
-    .set-type-D { color: var(--purple); }
+    .set-type-D { color: var(--lime); }
     .set-type-F { color: var(--danger); }
+
+    .drop-set-row {
+      padding-left: 16px !important;
+      border-left: 2px solid var(--lime) !important;
+      margin-left: 8px !important;
+    }
+    .drop-chip {
+      min-height: 40px;
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      background: var(--lime);
+      color: #0b0f19;
+      border: none;
+      border-radius: 16px;
+      cursor: pointer;
+    }
+    .drop-chip.disabled {
+      background: var(--bg-elevated);
+      color: var(--text-sub);
+      border: 1px solid var(--border);
+      cursor: not-allowed;
+    }
+    .badge-drop {
+      background: var(--lime-bg) !important;
+      color: var(--lime) !important;
+      font-size: 10px;
+      font-weight: 800;
+      border: 1px solid rgba(132, 204, 22, 0.4);
+    }
 
     .prev-text {
       font-size: 12px;
@@ -706,6 +738,18 @@
             <option value="sun">Sunday</option>
           </select>
         </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Drop set percentage</span>
+          <select id="dropStepPctSelect" class="set-input" style="width:170px;" onchange="setDropStepPct(this.value)">
+            <option value="10">−10%</option>
+            <option value="20" selected>−20%</option>
+            <option value="30">−30%</option>
+          </select>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Superset smart advance</span>
+          <input type="checkbox" id="supersetAdvanceCheck" checked onchange="setSupersetAdvance(this.checked)">
+        </div>
         <div style="font-weight:700; font-size:14px; margin-bottom:8px;">Barbell plates</div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
           <span style="font-size:14px;">Bar weight (KG)</span>
@@ -1036,6 +1080,34 @@
         <button class="btn btn-block" style="margin-top:10px;" onclick="setSetTypeFromMenu('F')">Failure</button>
         <button class="btn btn-block" style="margin-top:10px;" onclick="setSetTypeFromMenu('D')">Drop</button>
         <button class="btn btn-danger btn-block" style="margin-top:10px;" onclick="removeSetFromMenu()">Remove set</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DROP STEP PICKER (P2-12) -->
+  <div class="modal" id="dropStepModal">
+    <div class="modal-content sheet" style="max-width:412px;">
+      <div class="modal-header">
+        <span>Drop step percentage</span>
+        <button class="btn" onclick="closeModal('dropStepModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <button class="btn btn-block" style="min-height:44px;" onclick="pickDropStep(10)">−10%</button>
+        <button class="btn btn-block" style="min-height:44px; margin-top:10px;" onclick="pickDropStep(20)">−20% (Default)</button>
+        <button class="btn btn-block" style="min-height:44px; margin-top:10px;" onclick="pickDropStep(30)">−30%</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUPERSET WITH PICKER (P2-12) -->
+  <div class="modal" id="supersetPickerModal">
+    <div class="modal-content sheet" style="max-width:412px;">
+      <div class="modal-header">
+        <span>Superset with…</span>
+        <button class="btn" onclick="closeModal('supersetPickerModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="supersetPickerList" style="display:flex; flex-direction:column; gap:8px;"></div>
       </div>
     </div>
   </div>
@@ -1716,6 +1788,8 @@
       unit: 'KG',
       schemaVersion: 2,
       defaultRest: 90,
+      dropStepPct: 20,
+      supersetAdvance: true,
       exercises: [],
       routines: [],
       history: []
@@ -1942,9 +2016,15 @@
       if (hadSavedState) saveState();
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       state.plateSettings = normalizePlateSettings(state.plateSettings);
+      if (state.dropStepPct !== 10 && state.dropStepPct !== 20 && state.dropStepPct !== 30) state.dropStepPct = 20;
+      if (typeof state.supersetAdvance !== 'boolean') state.supersetAdvance = true;
 
       document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
       document.getElementById('defaultRestInput').value = state.defaultRest || 90;
+      const dropSelect = document.getElementById('dropStepPctSelect');
+      if (dropSelect) dropSelect.value = state.dropStepPct || 20;
+      const advCheck = document.getElementById('supersetAdvanceCheck');
+      if (advCheck) advCheck.checked = state.supersetAdvance !== false;
 
       renderRoutines();
       renderHistory();
@@ -2485,6 +2565,8 @@
       }
       const out = {
         exId: src.exId,
+        supersetId: (typeof src.supersetId === 'string' && src.supersetId) ? src.supersetId : null,
+        dropsAfterLast: (src.dropsAfterLast === 1 || src.dropsAfterLast === 2) ? src.dropsAfterLast : 0,
         sets,
         targetRepsMin: rp.min,
         targetRepsMax: rp.max,
@@ -2587,14 +2669,34 @@
 
     function renderRoutineBuilderList() {
       const container = document.getElementById('routineBuilderExList');
+      const supersetInfos = computeSupersetLabels(tempRoutineExercises);
       container.innerHTML = tempRoutineExercises.map((item, idx) => {
         const ex = state.exercises.find(e => e.id === item.exId);
         const durEx = isDurationEx(ex);
+        const loadEx = usesLoadMetrics(ex);
         const noteEsc = String(item.note || '').replace(/"/g, '&quot;');
+        const ssInfo = supersetInfos[idx];
+        const ssBadge = ssInfo ? `<span class="badge" style="background:${ssInfo.color}; color:#fff; font-weight:800; font-size:11px; margin-right:4px;">${ssInfo.label}</span><span class="badge" style="font-size:10px; background:rgba(255,255,255,0.08); color:var(--text-sub); margin-right:4px;">Superset</span>` : '';
+        const borderStyle = ssInfo ? `border-left:4px solid ${ssInfo.color}; padding-left:8px;` : '';
+        const dropsSelect = loadEx ? `
+          <div style="display:flex; align-items:center; gap:6px; margin-top:4px;">
+            <span style="font-size:12px; color:var(--text-sub);">Drops after last set:</span>
+            <select class="set-input" style="width:55px;" onchange="updateBuilderDropsAfterLast(${idx}, this.value)">
+              <option value="0"${!item.dropsAfterLast ? ' selected' : ''}>0</option>
+              <option value="1"${item.dropsAfterLast === 1 ? ' selected' : ''}>1</option>
+              <option value="2"${item.dropsAfterLast === 2 ? ' selected' : ''}>2</option>
+            </select>
+          </div>
+        ` : '';
+        const supersetBtn = ssInfo ? `
+          <button class="btn" style="flex:1; min-height:44px;" onclick="removeFromSuperset(${idx}, 'routine')">Remove superset</button>
+        ` : `
+          <button class="btn" style="flex:1; min-height:44px;" onclick="openSupersetPicker(${idx}, 'routine')">🔗 Superset with…</button>
+        `;
         return `
-          <div style="padding:8px 0; border-bottom:1px solid var(--border);">
+          <div style="padding:8px 0; border-bottom:1px solid var(--border); ${borderStyle}">
             <div style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-              <span style="font-weight:700;">${ex ? esc(ex.name) : ''}</span>
+              <div>${ssBadge}<span style="font-weight:700;">${ex ? esc(ex.name) : ''}</span></div>
               <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeBuilderExercise(${idx})">✕</button>
             </div>
             <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
@@ -2608,14 +2710,23 @@
                    <input type="number" class="set-input" style="width:70px;" value="${item.targetWeightKg === null ? '' : formatDisplayWeight(item.targetWeightKg)}" placeholder="${state.unit}" onchange="updateBuilderWeight(${idx}, this.value)">`}
               <button class="rest-chip" onclick="openBuilderRestPicker(${idx})">${formatRestLabel(item.restSec)}</button>
             </div>
+            ${dropsSelect}
             <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" onchange="updateBuilderNote(${idx}, this.value)">
-            <div style="display:flex; gap:6px; margin-top:6px;">
+            <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
               <button class="btn" style="flex:1; min-height:44px;" onclick="moveBuilderExercise(${idx}, -1)">▲ Up</button>
               <button class="btn" style="flex:1; min-height:44px;" onclick="moveBuilderExercise(${idx}, 1)">▼ Down</button>
+              ${supersetBtn}
             </div>
           </div>
         `;
       }).join('');
+    }
+
+    function updateBuilderDropsAfterLast(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      const n = parseInt(val, 10);
+      tempRoutineExercises[idx].dropsAfterLast = (n === 1 || n === 2) ? n : 0;
+      renderRoutineBuilderList();
     }
 
     function updateBuilderSets(idx, val) {
@@ -2779,6 +2890,42 @@
       saveState();
       renderProfileStats();
       if (activeWorkout) renderActiveWorkout();
+    }
+
+    function setDropStepPct(val) {
+      const n = parseInt(val, 10);
+      state.dropStepPct = (n === 10 || n === 20 || n === 30) ? n : 20;
+      saveState();
+      const dropSelect = document.getElementById('dropStepPctSelect');
+      if (dropSelect) dropSelect.value = state.dropStepPct;
+      if (activeWorkout) renderActiveWorkout();
+    }
+
+    function setSupersetAdvance(val) {
+      state.supersetAdvance = !!val;
+      saveState();
+      const advCheck = document.getElementById('supersetAdvanceCheck');
+      if (advCheck) advCheck.checked = state.supersetAdvance;
+    }
+
+    function calcDropWeight(weightKg, pct, unit) {
+      if (weightKg === '' || weightKg === null || weightKg === undefined) return 0;
+      const w = Number(weightKg);
+      if (!isFinite(w) || w <= 0) return 0;
+      const stepPct = (pct === 10 || pct === 20 || pct === 30) ? pct : (state.dropStepPct || 20);
+      const u = unit || state.unit || 'KG';
+      if (u === 'LBS') {
+        const wLb = toDisplayWeight(w, 'LBS');
+        const rawLb = wLb * (1 - stepPct / 100);
+        const droppedLb = Math.floor(rawLb / 5) * 5;
+        if (droppedLb <= 0) return 0;
+        return fromInputWeight(droppedLb, 'LBS');
+      } else {
+        const rawKg = w * (1 - stepPct / 100);
+        const droppedKg = Math.floor(rawKg / 2.5) * 2.5;
+        if (droppedKg <= 0) return 0;
+        return Math.round(droppedKg * 100) / 100;
+      }
     }
 
     function getExInstanceIdx(exercises, exIdx) {
@@ -3286,11 +3433,37 @@
               done: false
             });
           }
+          if (!durEx && norm.dropsAfterLast > 0 && sets.length > 0) {
+            let lastW = sets[sets.length - 1].weight;
+            for (let d = 0; d < norm.dropsAfterLast; d++) {
+              let dropW = '';
+              if (lastW !== '' && lastW !== null && lastW !== undefined && Number(lastW) > 0) {
+                const dropped = calcDropWeight(lastW, state.dropStepPct, state.unit);
+                if (dropped > 0) {
+                  dropW = dropped;
+                  lastW = dropped;
+                }
+              }
+              sets.push({
+                type: 'D',
+                weight: dropW,
+                reps: '',
+                done: false
+              });
+            }
+          }
           // P2-03: inherit per-exercise rest; old routines without restSec use the Profile default.
           const restSec = (typeof item.restSec === 'number' && isFinite(item.restSec) && item.restSec >= 0)
             ? item.restSec : (state.defaultRest || 90);
           // P2-04: prescription hints carried into the session (never auto-ticked).
-          return { exId: item.exId, sets, restSec, note: norm.note || '', targetRepsLabel: formatRepsTarget(norm) };
+          return {
+            exId: item.exId,
+            supersetId: norm.supersetId || null,
+            sets,
+            restSec,
+            note: norm.note || '',
+            targetRepsLabel: formatRepsTarget(norm)
+          };
         })
       };
       openWorkoutDrawer();
@@ -3356,12 +3529,20 @@
         container.appendChild(banner);
       }
 
+      const supersetInfos = computeSupersetLabels(activeWorkout.exercises);
+
       activeWorkout.exercises.forEach((exItem, exIdx) => {
         const exInfo = state.exercises.find(e => e.id === exItem.exId) || { name: 'Exercise', muscle: '' };
         const durEx = isDurationEx(exInfo);
         const durKg = durEx && durationSetAllowsWeight(exInfo);
+        const loadEx = usesLoadMetrics(exInfo);
+        const ssInfo = supersetInfos[exIdx];
         const block = document.createElement('div');
         block.className = 'ex-block';
+        if (ssInfo) {
+          block.style.borderLeft = '4px solid ' + ssInfo.color;
+          block.style.paddingLeft = '10px';
+        }
 
         let setsHtml = `
           <div class="set-row-header">
@@ -3374,12 +3555,21 @@
         `;
 
         let normalCounter = 1;
-        const repsPh = exItem.targetRepsLabel || '0';
+        let dropCounter = 0;
         exItem.sets.forEach((s, sIdx) => {
           const lane = getSetLaneIndex(exItem.sets, sIdx);
           const inst = getExInstanceIdx(activeWorkout.exercises, exIdx);
           const prev = getPreviousSet(exItem.exId, lane, s.type, inst, activeWorkout.routineId || null);
-          const label = s.type === 'N' ? normalCounter++ : s.type;
+          const isDrop = s.type === 'D';
+          let label = '';
+          if (isDrop) {
+            dropCounter++;
+            label = '↳' + dropCounter;
+          } else {
+            dropCounter = 0;
+            label = s.type === 'N' ? normalCounter++ : s.type;
+          }
+          const repsPh = isDrop ? (sIdx > 0 ? String(exItem.sets[sIdx - 1].reps || '') : '0') : (exItem.targetRepsLabel || '0');
           const key = exIdx + ':' + sIdx;
           const err = setInputErrors[key] || { weight: '', reps: '', duration: '' };
           const wErr = err.weight || '';
@@ -3403,7 +3593,7 @@
               prevStr = prevKg + (prevHold || (Number(prev.reps) >= 1 ? '× ' + esc(String(prev.reps)) : '—'));
             }
             setsHtml += `
-              <div class="set-row ${s.done ? 'done' : ''}">
+              <div class="set-row ${s.done ? 'done' : ''}" id="set-row-${exIdx}-${sIdx}">
                 <button class="set-type-btn set-type-${s.type}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
                 <div class="prev-text" onclick="copyPreviousIntoSet(${exIdx}, ${sIdx})">${prevStr}</div>
                 <input id="set-time-${exIdx}-${sIdx}" type="text" class="set-input ${dErr ? 'invalid' : ''} ${reached ? 'time-target' : ''}" value="${clock}" placeholder="1:05" onfocus="this.select()" oninput="updateSetDuration(${exIdx}, ${sIdx}, this.value)" onchange="handleSetDurationChange(${exIdx}, ${sIdx})">
@@ -3420,9 +3610,13 @@
           }
 
           const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
+          const dropTag = isDrop ? '<span class="badge badge-drop" style="margin-left:4px;">DROP</span>' : '';
           setsHtml += `
-            <div class="set-row ${s.done ? 'done' : ''}">
-              <button class="set-type-btn set-type-${s.type}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
+            <div class="set-row ${s.done ? 'done' : ''} ${isDrop ? 'drop-set-row' : ''}" id="set-row-${exIdx}-${sIdx}">
+              <div style="display:flex; align-items:center; justify-content:center; gap:2px;">
+                <button class="set-type-btn set-type-${s.type}" style="${isDrop ? 'white-space:nowrap; font-size:12px; padding:0 4px; min-width:30px;' : ''}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
+                ${dropTag}
+              </div>
               <div class="prev-text" onclick="copyPreviousIntoSet(${exIdx}, ${sIdx})">${prevStr}</div>
               <input id="set-w-${exIdx}-${sIdx}" type="number" class="set-input ${wErr ? 'invalid' : ''}" value="${s.weight === '' ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)" onchange="handleSetFieldChange(${exIdx}, ${sIdx})">
               <input id="set-r-${exIdx}-${sIdx}" type="number" class="set-input ${rErr ? 'invalid' : ''}" value="${s.reps}" placeholder="${repsPh}" oninput="updateSetVal(${exIdx}, ${sIdx}, 'reps', this.value)" onchange="handleSetFieldChange(${exIdx}, ${sIdx})">
@@ -3430,16 +3624,47 @@
               <div id="set-err-${exIdx}-${sIdx}" class="set-error"${rowMsg ? '' : ' style="display:none;"'}>${rowMsg}</div>
             </div>
           `;
+
+          // Drop chip for ticked weight sets
+          /* Chip only on the LAST set of a drop chain: once a drop follows, the chip moves to it. */
+          const nextIsDrop = !!(exItem.sets[sIdx + 1] && exItem.sets[sIdx + 1].type === 'D');
+          if (loadEx && s.done && !nextIsDrop && (s.type === 'N' || s.type === 'F' || s.type === 'D')) {
+            const dropKg = calcDropWeight(s.weight, state.dropStepPct, state.unit);
+            if (dropKg <= 0) {
+              setsHtml += `
+                <div class="drop-chip-row" style="display:flex; justify-content:flex-end; align-items:center; gap:6px; margin:2px 0 6px;">
+                  <button class="btn drop-chip disabled" style="min-height:40px; padding:6px 14px; font-size:12px; font-weight:700;" disabled>Too light to drop</button>
+                </div>
+              `;
+            } else {
+              setsHtml += `
+                <div class="drop-chip-row" style="display:flex; justify-content:flex-end; align-items:center; gap:6px; margin:2px 0 6px;">
+                  <span class="drop-step-label" style="font-size:12px; color:var(--text-sub); cursor:pointer;" onclick="openDropStepPicker(${exIdx}, ${sIdx})">−${state.dropStepPct || 20}%</span>
+                  <button class="btn drop-chip" style="min-height:40px; padding:6px 14px; font-size:13px; font-weight:700;" onclick="addDropSet(${exIdx}, ${sIdx})">⬇ Drop</button>
+                </div>
+              `;
+            }
+          }
         });
 
         const restSec = getExerciseRestSec(exIdx);
         const noteEsc = String(exItem.note || '').replace(/"/g, '&quot;');
         const targetSecVal = durEx ? (exItem.sets || []).map(s => Number(s.targetSec)).find(n => isFinite(n) && n >= 1) : null;
         const targetChip = (durEx && isFinite(targetSecVal)) ? `<span class="badge" id="set-target-${exIdx}">target ${Math.round(targetSecVal)} s</span>` : '';
+        const ssBadge = ssInfo ? `<span class="badge" style="background:${ssInfo.color}; color:#fff; font-weight:800; font-size:11px; margin-right:4px;">${ssInfo.label}</span><span class="badge" style="font-size:10px; background:rgba(255,255,255,0.08); color:var(--text-sub); margin-right:4px;">Superset</span>` : '';
+        const ssBtn = ssInfo ? `
+          <button class="btn" style="flex:1; min-height:44px;" onclick="removeFromSuperset(${exIdx}, 'workout')">Remove superset</button>
+        ` : `
+          <button class="btn" style="flex:1; min-height:44px;" onclick="openSupersetPicker(${exIdx}, 'workout')">🔗 Superset with…</button>
+        `;
+
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
-              <div class="ex-name" style="cursor:pointer;" onclick="openExerciseProgress('${esc(exItem.exId)}','workout')">${esc(exInfo.name)}</div>
+              <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                ${ssBadge}
+                <div class="ex-name" style="cursor:pointer;" onclick="openExerciseProgress('${esc(exItem.exId)}','workout')">${esc(exInfo.name)}</div>
+              </div>
               <span class="badge">${esc(exPrimary(exInfo))}</span>
               ${targetChip}
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
@@ -3450,10 +3675,11 @@
           <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" onchange="updateActiveNote(${exIdx}, this.value)">
           ${setsHtml}
           <button class="btn btn-block" style="margin-top:8px; padding:8px;" onclick="addSetToActive(${exIdx})">+ Add Set</button>
-          <div style="display:flex; gap:6px; margin-top:6px;">
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">
             <button class="btn" style="flex:1; min-height:44px;" onclick="moveActiveEx(${exIdx}, -1)">▲ Up</button>
             <button class="btn" style="flex:1; min-height:44px;" onclick="moveActiveEx(${exIdx}, 1)">▼ Down</button>
             <button class="btn" style="flex:1; min-height:44px;" onclick="openReplacePicker(${exIdx})">⇄ Replace</button>
+            ${ssBtn}
           </div>
         `;
         container.appendChild(block);
@@ -3505,22 +3731,29 @@
       return setSetType(exIdx, sIdx, next);
     }
 
-    /* P2-05 remove one set (personal part): 5-second in-memory Undo. */
+    /* P2-05 / P2-12 remove set: removing parent set removes its drops too; 5-second in-memory Undo. */
     function removeActiveSet(exIdx, sIdx) {
       if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
       const sets = activeWorkout.exercises[exIdx].sets || [];
       if (!sets[sIdx]) return false;
-      const removed = sets.splice(sIdx, 1)[0];
+      const isDrop = sets[sIdx].type === 'D';
+      let countToRemove = 1;
+      if (!isDrop) {
+        while (sIdx + countToRemove < sets.length && sets[sIdx + countToRemove].type === 'D') {
+          countToRemove++;
+        }
+      }
+      const removed = sets.splice(sIdx, countToRemove);
       const next = {};
       Object.keys(setInputErrors).forEach(k => {
         const parts = String(k).split(':');
         if (parts[0] !== String(exIdx)) { next[k] = setInputErrors[k]; return; }
         const i = Number(parts[1]);
-        if (i === sIdx) return;
-        next[exIdx + ':' + (i > sIdx ? i - 1 : i)] = setInputErrors[k];
+        if (i >= sIdx && i < sIdx + countToRemove) return;
+        next[exIdx + ':' + (i >= sIdx + countToRemove ? i - countToRemove : i)] = setInputErrors[k];
       });
       setInputErrors = next;
-      deletedSetBackup = { exIdx, sIdx, set: removed, expiresAt: Date.now() + 5000 };
+      deletedSetBackup = { exIdx, sIdx, sets: removed, set: removed[0], expiresAt: Date.now() + 5000 };
       try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
       try { deletedSetTimer = setTimeout(function () { expireDeletedSet(); }, 5000); } catch (e) {}
       renderActiveWorkout();
@@ -3532,7 +3765,13 @@
       if (!deletedSetBackup || !activeWorkout) return false;
       const b = deletedSetBackup;
       const ex = activeWorkout.exercises[b.exIdx];
-      if (ex && Array.isArray(ex.sets)) ex.sets.splice(Math.min(b.sIdx, ex.sets.length), 0, b.set);
+      if (ex && Array.isArray(ex.sets)) {
+        if (Array.isArray(b.sets)) {
+          ex.sets.splice(Math.min(b.sIdx, ex.sets.length), 0, ...b.sets);
+        } else if (b.set) {
+          ex.sets.splice(Math.min(b.sIdx, ex.sets.length), 0, b.set);
+        }
+      }
       deletedSetBackup = null;
       try { if (deletedSetTimer) clearTimeout(deletedSetTimer); } catch (e) {}
       deletedSetTimer = null;
@@ -3653,6 +3892,17 @@
       saveActiveSession();
     }
 
+    let lastScrolledTargetId = null;
+    function scrollActiveSetIntoView(targetId) {
+      lastScrolledTargetId = targetId;
+      try {
+        const el = document.getElementById(targetId);
+        if (el && typeof el.scrollIntoView === 'function') {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } catch (e) {}
+    }
+
     function toggleSetDone(exIdx, sIdx) {
       if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
       const s = activeWorkout.exercises[exIdx].sets[sIdx];
@@ -3672,14 +3922,225 @@
         clearSetError(exIdx, sIdx);
         renderActiveWorkout();
         saveActiveSession();
-        // P2-03: ticking starts THAT exercise's rest; Off starts no timer.
-        const rest = getExerciseRestSec(exIdx);
-        if (rest > 0) startRestTimer(rest);
+
+        // P2-12: Drop sets have NO rest timer
+        if (s.type === 'D') {
+          return true;
+        }
+
+        const exItem = activeWorkout.exercises[exIdx];
+        const sid = exItem.supersetId;
+        let shouldStartRest = true;
+        let nextScrollTarget = null;
+
+        if (sid && state.supersetAdvance) {
+          const partners = [];
+          activeWorkout.exercises.forEach((item, idx) => {
+            if (item && item.supersetId === sid) partners.push({ item, idx });
+          });
+
+          if (partners.length >= 2) {
+            const pos = partners.findIndex(p => p.idx === exIdx);
+            if (pos >= 0) {
+              const isLastPartner = (pos === partners.length - 1);
+              if (!isLastPartner) {
+                // Not the last exercise of round: no rest, scroll to partner set sIdx
+                shouldStartRest = false;
+                const nextPartner = partners[pos + 1];
+                const nextSetIdx = Math.min(sIdx, (nextPartner.item.sets || []).length - 1);
+                nextScrollTarget = `set-row-${nextPartner.idx}-${nextSetIdx}`;
+              } else {
+                // Last exercise of the round: start rest once, scroll back to A1 set sIdx + 1
+                shouldStartRest = true;
+                const firstPartner = partners[0];
+                const nextRoundSetIdx = sIdx + 1;
+                if (nextRoundSetIdx < (firstPartner.item.sets || []).length) {
+                  nextScrollTarget = `set-row-${firstPartner.idx}-${nextRoundSetIdx}`;
+                } else {
+                  nextScrollTarget = `set-row-${firstPartner.idx}-${sIdx}`;
+                }
+              }
+            }
+          }
+        }
+
+        if (shouldStartRest) {
+          const rest = getExerciseRestSec(exIdx);
+          if (rest > 0) startRestTimer(rest);
+        }
+
+        if (nextScrollTarget) {
+          scrollActiveSetIntoView(nextScrollTarget);
+        }
+
         return true;
       }
       s.done = false;
       renderActiveWorkout();
       saveActiveSession();
+      return true;
+    }
+
+    function addDropSet(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
+      const exItem = activeWorkout.exercises[exIdx];
+      const parentSet = exItem.sets[sIdx];
+      const dropKg = calcDropWeight(parentSet.weight, state.dropStepPct, state.unit);
+      if (dropKg <= 0) return false;
+
+      // Drop sets have no rest — cancel running rest timer
+      stopRestTimer();
+
+      const newSet = {
+        type: 'D',
+        weight: dropKg,
+        reps: '',
+        dropOf: sIdx,
+        done: false
+      };
+
+      exItem.sets.splice(sIdx + 1, 0, newSet);
+
+      const nextErrors = {};
+      Object.keys(setInputErrors).forEach(k => {
+        const parts = String(k).split(':');
+        if (parts[0] !== String(exIdx)) { nextErrors[k] = setInputErrors[k]; return; }
+        const i = Number(parts[1]);
+        if (i <= sIdx) nextErrors[k] = setInputErrors[k];
+        else nextErrors[exIdx + ':' + (i + 1)] = setInputErrors[k];
+      });
+      setInputErrors = nextErrors;
+
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    let dropPickerTarget = null;
+    function openDropStepPicker(exIdx, sIdx) {
+      dropPickerTarget = (exIdx !== undefined && sIdx !== undefined) ? { exIdx, sIdx } : null;
+      document.getElementById('dropStepModal').classList.add('open');
+    }
+
+    function pickDropStep(pct) {
+      setDropStepPct(pct);
+      closeModal('dropStepModal');
+    }
+
+    const SUPERSET_COLORS = ['#3b82f6', '#a855f7', '#f59e0b', '#10b981'];
+
+    function computeSupersetLabels(exercises) {
+      const list = exercises || [];
+      const counts = {};
+      list.forEach(ex => {
+        if (ex && ex.supersetId) {
+          counts[ex.supersetId] = (counts[ex.supersetId] || 0) + 1;
+        }
+      });
+
+      const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      const groupLetter = {};
+      const currentCount = {};
+      let groupIdx = 0;
+
+      return list.map(ex => {
+        if (!ex || !ex.supersetId) return null;
+        const sid = ex.supersetId;
+        if (!groupLetter[sid]) {
+          groupLetter[sid] = letters[groupIdx % letters.length];
+          groupIdx++;
+        }
+        currentCount[sid] = (currentCount[sid] || 0) + 1;
+        const letter = groupLetter[sid];
+        const num = currentCount[sid];
+        const colorIdx = (letters.indexOf(letter)) % SUPERSET_COLORS.length;
+        const color = SUPERSET_COLORS[colorIdx];
+        return {
+          supersetId: sid,
+          label: letter + num,
+          color: color,
+          isFirst: num === 1,
+          isLast: num === counts[sid],
+          count: counts[sid]
+        };
+      });
+    }
+
+    let supersetPickerTarget = null;
+
+    function openSupersetPicker(exIdx, context = 'workout') {
+      supersetPickerTarget = { idx: exIdx, context };
+      const list = context === 'routine' ? tempRoutineExercises : (activeWorkout ? activeWorkout.exercises : []);
+      const container = document.getElementById('supersetPickerList');
+      if (!container) return;
+      container.innerHTML = '';
+      if (!list || list.length <= 1) {
+        container.innerHTML = '<div style="color:var(--text-sub); font-size:14px; padding:10px 0;">Add another exercise first.</div>';
+      } else {
+        list.forEach((item, i) => {
+          if (i === exIdx) return;
+          const exInfo = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
+          const btn = document.createElement('button');
+          btn.className = 'btn btn-block';
+          btn.style.cssText = 'min-height:44px; text-align:left; padding:8px 12px;';
+          btn.innerHTML = `<span style="font-weight:700;">${esc(exInfo.name)}</span>`;
+          btn.onclick = () => {
+            closeModal('supersetPickerModal');
+            supersetWith(exIdx, i, context);
+          };
+          container.appendChild(btn);
+        });
+      }
+      document.getElementById('supersetPickerModal').classList.add('open');
+    }
+
+    function supersetWith(sourceIdx, targetIdx, context = 'workout') {
+      const list = context === 'routine' ? tempRoutineExercises : (activeWorkout ? activeWorkout.exercises : null);
+      if (!list || !list[sourceIdx] || !list[targetIdx] || sourceIdx === targetIdx) return false;
+
+      const sourceItem = list[sourceIdx];
+      const targetItem = list[targetIdx];
+      const sid = sourceItem.supersetId || targetItem.supersetId || ('ss_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6));
+
+      sourceItem.supersetId = sid;
+      targetItem.supersetId = sid;
+
+      const [moved] = list.splice(targetIdx, 1);
+      const newSourceIdx = list.indexOf(sourceItem);
+      let insertIdx = newSourceIdx + 1;
+      while (insertIdx < list.length && list[insertIdx].supersetId === sid) {
+        insertIdx++;
+      }
+      list.splice(insertIdx, 0, moved);
+
+      if (context === 'routine') {
+        renderRoutineBuilderList();
+      } else {
+        setInputErrors = {};
+        renderActiveWorkout();
+        saveActiveSession();
+      }
+      return true;
+    }
+
+    function removeFromSuperset(exIdx, context = 'workout') {
+      const list = context === 'routine' ? tempRoutineExercises : (activeWorkout ? activeWorkout.exercises : null);
+      if (!list || !list[exIdx]) return false;
+      const sid = list[exIdx].supersetId;
+      if (!sid) return false;
+      list[exIdx].supersetId = null;
+
+      const remaining = list.filter(ex => ex && ex.supersetId === sid);
+      if (remaining.length === 1) {
+        remaining[0].supersetId = null;
+      }
+
+      if (context === 'routine') {
+        renderRoutineBuilderList();
+      } else {
+        renderActiveWorkout();
+        saveActiveSession();
+      }
       return true;
     }
 
@@ -3907,6 +4368,7 @@
         const doneSets = (ex.sets || []).filter(s => isCountableDoneSet(s, exType));
         return {
           exId: ex.exId,
+          supersetId: ex.supersetId || null,
           note: String(ex.note || '').slice(0, 140),
           sets: doneSets.map(s => setUsesDuration(s, exType) ? pickDurationHistorySet(s) : s)
         };
@@ -5015,18 +5477,33 @@
       const durMs = Math.max(0, Math.round(Number(w.durationSec) || 0)) * 1000;
       const startStr = new Date(endMs - durMs).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       const mins = Math.max(1, Math.round((Number(w.durationSec) || 0) / 60));
-      const exHtml = (w.exercises || []).map(item => {
+      const supersetInfos = computeSupersetLabels(w.exercises);
+      const exHtml = (w.exercises || []).map((item, itemIdx) => {
         const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
         const durEx = isDurationEx(ex);
         const sets = Array.isArray(item.sets) ? item.sets : [];
+        const ssInfo = supersetInfos[itemIdx];
+        const ssBadge = ssInfo ? `<span class="badge" style="background:${ssInfo.color}; color:#fff; font-weight:800; font-size:11px; margin-right:4px;">${ssInfo.label}</span><span class="badge" style="font-size:10px; background:rgba(255,255,255,0.08); color:var(--text-sub); margin-right:4px;">Superset</span>` : '';
+        const borderStyle = ssInfo ? `border-left:4px solid ${ssInfo.color}; padding-left:8px;` : '';
+
+        let dropCounter = 0;
+        let normalCounter = 1;
         const rows = sets.map((s, i) => {
           const t = normSetType(s && s.type);
+          let rowLabel = '';
+          if (t === 'D') {
+            dropCounter++;
+            rowLabel = '↳ ' + dropCounter;
+          } else {
+            dropCounter = 0;
+            rowLabel = 'Set ' + (t === 'N' ? normalCounter++ : t);
+          }
           const valueHtml = (durEx && setUsesDuration(s, 'duration'))
             ? `<span>${(s.weight !== '' && s.weight !== undefined && s.weight !== null && Number(s.weight) > 0) ? '<b>' + formatDisplayWeight(s.weight) + '</b> ' + state.unit + ' · ' : ''}<b>${formatDurationClock(Math.round(Number(s.durationSec) || 0))}</b></span>`
             : `<span><b>${formatDisplayWeight(s.weight)}</b> ${state.unit} × <b>${esc(String(s.reps))}</b></span>`;
-          return `<div style="display:flex; gap:8px; align-items:center; font-size:13px; padding:3px 0; border-bottom:1px solid var(--border);">`
-            + `<span style="min-width:44px; color:var(--text-sub);">Set ${i + 1}</span>`
-            + `<span class="type-label">${t}</span>`
+          return `<div style="display:flex; gap:8px; align-items:center; font-size:13px; padding:3px 0; border-bottom:1px solid var(--border); ${t === 'D' ? 'padding-left:16px;' : ''}">`
+            + `<span style="min-width:44px; color:var(--text-sub);">${rowLabel}</span>`
+            + `<span class="type-label ${t === 'D' ? 'badge-drop' : ''}">${t}</span>`
             + `<span style="flex:1;"></span>`
             + valueHtml
             + `</div>`;
@@ -5034,8 +5511,8 @@
         const noteLine = item.note
           ? `<div style="font-size:12px; color:var(--text-sub); margin:2px 0 6px;">📝 ${esc(item.note)}</div>`
           : '';
-        return `<div style="padding:8px 0; border-bottom:1px solid var(--border);">`
-          + `<div style="font-weight:700; font-size:14px; cursor:pointer;" onclick="openExerciseProgress('${esc(item.exId)}','hist')">` + esc(ex.name) + ' <span style="color:var(--primary); font-size:12px; font-weight:600;">📈 ›</span>' + `${item.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : ''}` + `</div>`
+        return `<div style="padding:8px 0; border-bottom:1px solid var(--border); ${borderStyle}">`
+          + `<div style="font-weight:700; font-size:14px; cursor:pointer;" onclick="openExerciseProgress('${esc(item.exId)}','hist')">` + ssBadge + esc(ex.name) + ' <span style="color:var(--primary); font-size:12px; font-weight:600;">📈 ›</span>' + `${item.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : ''}` + `</div>`
           + noteLine + rows + `</div>`;
       }).join('');
       body.innerHTML = `
@@ -5533,7 +6010,7 @@
             return { type: t, weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false };
           });
           // History stores no per-exercise rest; fall back to the default.
-          return { exId: item.exId, sets, restSec: (state.defaultRest || 90), note: String(item.note || '').slice(0, 140) };
+          return { exId: item.exId, supersetId: item.supersetId || null, sets, restSec: (state.defaultRest || 90), note: String(item.note || '').slice(0, 140) };
         })
       };
       openWorkoutDrawer();
@@ -5553,6 +6030,7 @@
         name,
         exercises: w.exercises.map(item => normalizeRoutineItem({
           exId: item.exId,
+          supersetId: item.supersetId || null,
           sets: Math.max(1, (item.sets || []).length),
           // P2-08: save-as-routine keeps each set's type as well as the count.
           setTypes: (item.sets || []).map(s => normSetType(s && s.type)),
@@ -7053,6 +7531,8 @@
       // P2-10: a backup without plans restores fine (gains plans:{}); one with
       // plans keeps them (invalid entries dropped). Nothing is ever refused.
       data.plans = normalizePlans(data.plans);
+      if (data.dropStepPct !== 10 && data.dropStepPct !== 20 && data.dropStepPct !== 30) data.dropStepPct = 20;
+      if (typeof data.supersetAdvance !== 'boolean') data.supersetAdvance = true;
       // P1-05: keep a valid profile from the backup (missing stays missing,
       // which never forces onboarding); no getting-started surprise on
       // restore unless the backup explicitly left the card up.
@@ -7110,6 +7590,7 @@
           }
           if (!seenEx[item.exId]) noteUnknown(item.exId);
         }
+        rt.exercises = rt.exercises.map(normalizeRoutineItem);
       }
 
       let minDate = null;
@@ -7241,6 +7722,11 @@
       pendingRestore = null;
       normalizeExercises(state);
       ensureHistoryIds(state.history);
+      if (Array.isArray(state.routines)) {
+        state.routines.forEach(rt => {
+          if (Array.isArray(rt.exercises)) rt.exercises = rt.exercises.map(normalizeRoutineItem);
+        });
+      }
       // P2-10: keep the plans that came with the backup (invalid dropped).
       state.plans = normalizePlans(state.plans);
       if (!state.unit) state.unit = 'KG';
@@ -7248,11 +7734,17 @@
       if (state.profile && typeof state.profile === 'object' && !Array.isArray(state.profile)) {
         state.profile = normalizeProfile(state.profile);
       }
+      if (state.dropStepPct !== 10 && state.dropStepPct !== 20 && state.dropStepPct !== 30) state.dropStepPct = 20;
+      if (typeof state.supersetAdvance !== 'boolean') state.supersetAdvance = true;
       saveState();
       closeModal('restoreModal');
       restoreDoneThisSession = true;
       document.getElementById('unitToggleBtn').innerText = state.unit || 'KG';
       document.getElementById('defaultRestInput').value = state.defaultRest || 90;
+      const dropSelect = document.getElementById('dropStepPctSelect');
+      if (dropSelect) dropSelect.value = state.dropStepPct;
+      const advCheck = document.getElementById('supersetAdvanceCheck');
+      if (advCheck) advCheck.checked = state.supersetAdvance !== false;
       renderRoutines();
       renderHistory();
       renderExercisesTab();

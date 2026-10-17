@@ -84,9 +84,15 @@ export function makeElement(tag = 'div', onHtml = null) {
   };
   let html = '';
   Object.defineProperty(el, 'innerHTML', {
-    get() { return html; },
+    get() {
+      if (this.children.length > 0) {
+        return html + this.children.map(c => c.innerHTML).join('');
+      }
+      return html;
+    },
     set(v) {
       html = String(v);
+      this.children = [];
       if (typeof onHtml === 'function') onHtml(html);
     },
     enumerable: true,
@@ -111,6 +117,16 @@ export function makeDocument() {
   // must be findable afterwards (set rows, pickers, detail panes).
   const registerHtmlIds = (html) => {
     if (typeof html !== 'string' || html.indexOf('id=') < 0) return;
+    for (const m of html.matchAll(/<([a-zA-Z0-9-]+)\s+([^>]*?)id="([^"]+)"([^>]*)>/g)) {
+      const tag = m[1];
+      const id = m[3];
+      const rest = m[2] + ' ' + m[4];
+      const el = byId.has(id) ? byId.get(id) : makeElement(tag, registerHtmlIds);
+      for (const attr of rest.matchAll(/([a-zA-Z0-9-]+)="([^"]*)"/g)) {
+        el.setAttribute(attr[1], attr[2]);
+      }
+      if (!byId.has(id)) byId.set(id, el);
+    }
     for (const m of html.matchAll(/id="([^"]+)"/g)) {
       if (!byId.has(m[1])) byId.set(m[1], makeElement('div', registerHtmlIds));
     }
@@ -298,6 +314,11 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   removeActiveSet, undoRemoveSet, expireDeletedSet,
   moveActiveEx, openReplacePicker, replaceActiveEx, updateActiveNote,
   paintSetRowError, handleSetFieldChange,
+  setDropStepPct, setSupersetAdvance, calcDropWeight, addDropSet,
+  openDropStepPicker, pickDropStep,
+  SUPERSET_COLORS, computeSupersetLabels, openSupersetPicker, supersetWith, removeFromSuperset,
+  scrollActiveSetIntoView, get lastScrolledTargetId(){ return lastScrolledTargetId; },
+  updateBuilderDropsAfterLast,
   renderActiveWorkout, copyPreviousIntoSet,
   normalizePlateSettings, getPlateSettings, computePlates, calculatePlates,
   openPlateCalcModal, openPlateCalcFor, savePlateSettings,

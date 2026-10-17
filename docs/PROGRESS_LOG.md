@@ -2,6 +2,14 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-17 — One-tap drop sets and supersets with smart advance (P2-12 Part 2 personal part), awaiting owner phone check
+
+- Implemented approved `docs/pillars/plans/P2-12-drop-superset/PLAN.md` in `index.html` on branch `codex/p2-12-drop-superset` (no remote, never pushed; no build step, no dependency).
+- **One-tap Drop sets ("Drop it"):** `⬇ Drop` button appears directly on ticked weight sets (min height 40 px); tapping it calculates weight dropped by 20% (or chosen 10%/30%), rounded DOWN to 2.5 kg (or 5 lb), and inserts the drop set row directly below parent set. Drop sets are labeled `↳ 1`, `↳ 2` with 16 px indent and thin lime indicator; normal set numbering skips drops (`normalCounter` not inflated). Tapping Drop cancels rest timer; drop sets have no rest timer. "Too light to drop" shows if dropped load is 0 or less. Cascading deletion: removing parent removes its drops with 5 s Undo restoring all. Routine builder: `dropsAfterLast` (0/1/2) pre-populates drops at workout start.
+- **Supersets with smart advance:** `🔗 Superset with…` links exercises under shared `supersetId` and moves them adjacent in workout / routine. Displays colored left border + `A1 / A2` / `B1 / B2` badges + `Superset` pill. Smart advance: ticking set $N$ of A1 scrolls smoothly to set $N$ of A2 without rest timer or stealing keyboard focus; ticking round's final partner starts rest timer once and scrolls to set $N+1$ of A1. Setting toggle for smart advance (default ON); when OFF, rest starts normally per set. Settings dropdown for drop percentage (10/20/30%, default 20%).
+- **Compatibility & focus safety:** Old backups without `dropStepPct` / `supersetAdvance` / `supersetId` restore cleanly without schema bump. Typing in drop rows does not rebuild the container (focus preserved).
+- Checks: new `tests/p2_drop_superset.test.mjs` (19 tests); all 237 tests pass with `node --test "tests/*.test.mjs"`. No browser run, no screenshots.
+
 ## 2026-10-17 — Timed sets for duration exercises (P2-12 personal part), awaiting owner phone check
 
 - Built by OpenCode (DeepSeek V4.1 Flash, free) from `docs/pillars/plans/P2-12/PLAN.md`; the run hit the free-model rate limit after the code and tests, so the supervisor added select-on-focus for the time box, these docs and the commit. Duration exercises (Plank, Side Plank, Mountain Climber, Farmer Carry, Battle Rope) log `durationSec` instead of KG/REPS: Start/Stop stopwatch on the row (one running at a time, survives reload/kill via the draft mirror), typed time `m:ss` or seconds without rebuilding, optional routine target with guarded vibrate, previous shows the last time, records show the longest hold (no e1RM/volume, no invented kg), optional KG for weighted carries. Supersets not done.
