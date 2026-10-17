@@ -574,6 +574,9 @@
         <div style="font-size:14px; line-height:1.7; color:var(--text-sub);">1. Tap a routine below, then Start Routine — your previous weights show under each set.<br>2. Tap Finish to save the workout on this phone.<br>3. Back up anytime from Profile → Backup JSON.</div>
       </div>
 
+      <!-- P2-10: today's plan, straight from the training calendar -->
+      <div id="todayPlanCard" style="margin-top:16px;"></div>
+
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:22px;">
         <h3 style="margin:0;">My Routines (Unlimited)</h3>
         <button class="btn" onclick="openRoutineBuilder()">+ New Routine</button>
@@ -639,6 +642,11 @@
         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px;">
           <div id="calendarConsistency" style="font-size:13px;"></div>
           <button class="btn" style="padding:5px 10px; font-size:12px;" onclick="calThisMonth()">Today</button>
+        </div>
+        <!-- P2-10: plans live on the same calendar; a plan is never a workout. -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:8px; flex-wrap:wrap;">
+          <div id="planCopyMsg" style="font-size:12px; color:var(--text-sub);"></div>
+          <button class="btn" style="padding:5px 10px; font-size:12px; min-height:32px;" onclick="copyWeekToNextWeek()">Copy week → next week</button>
         </div>
         <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
           <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
@@ -1959,6 +1967,7 @@
       document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
       btn.classList.add('active');
 
+      if (tabId === 'workout') renderRoutines();
       if (tabId === 'history') renderHistory();
       if (tabId === 'exercises') renderExercisesTab();
       if (tabId === 'profile') renderProfileStats();
@@ -1980,6 +1989,7 @@
     function renderRoutines() {
       const container = document.getElementById('routinesList');
       container.innerHTML = '';
+      renderTodayPlan();
 
       // P2-04: delete-undo banner (10 s, in-memory only; a reload drops it).
       if (deletedRoutineBackup) {
@@ -4769,6 +4779,104 @@
       return map;
     }
 
+    /* ---- P2-10 WEEK PLANNER (personal slice): pure helpers ----
+       One optional plan per local day key: { routineId, kind:'routine'|'rest',
+       createdAt }. Plans are a NEW optional field on state - no schema bump -
+       and they never touch history: completion is always derived from the
+       finished workouts that day. Everything below is pure + idempotent. */
+
+    /* 'YYYY-MM-DD' that round-trips through a real local date (rejects
+       '2026-13-45'-style keys). */
+    function isPlanDayKey(key) {
+      if (typeof key !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return false;
+      const p = key.split('-');
+      const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+      if (!isFinite(d.getTime())) return false;
+      return dayKeyLocal(d.getTime()) === key;
+    }
+
+    /* Pure + idempotent: valid day keys only; routine needs a non-empty
+       routineId; rest stores routineId null; createdAt finite else 0.
+       Anything missing or invalid is dropped (never throws). */
+    function normalizePlans(src) {
+      const out = {};
+      if (!src || typeof src !== 'object' || Array.isArray(src)) return out;
+      Object.keys(src).forEach(key => {
+        if (!isPlanDayKey(key)) return;
+        const p = src[key];
+        if (!p || typeof p !== 'object' || Array.isArray(p)) return;
+        const kind = (p.kind === 'rest') ? 'rest' : 'routine';
+        let routineId = null;
+        if (kind === 'routine') {
+          if (typeof p.routineId !== 'string' || p.routineId.trim() === '') return;
+          routineId = p.routineId;
+        }
+        const c = Number(p.createdAt);
+        out[key] = { routineId: routineId, kind: kind, createdAt: isFinite(c) ? c : 0 };
+      });
+      return out;
+    }
+
+    /* Current plan for one local day key, or null. */
+    function getPlan(key) {
+      const map = normalizePlans(state && state.plans);
+      return map[String(key)] || null;
+    }
+
+    /* Derived completion: true only when a finished workout that day carries
+       the planned routineId. A rest-day plan is never 'done' (2026-10-17
+       supervisor decision 2); an empty/workout-less routine is never done. */
+    function planDoneOn(plan, dayItems) {
+      if (!plan || typeof plan !== 'object' || plan.kind !== 'routine' || !plan.routineId) return false;
+      return (Array.isArray(dayItems) ? dayItems : []).some(w => w && w.routineId === plan.routineId);
+    }
+
+    /* none | planned | done | missed. Rest days stay 'planned' forever (never
+       missed, never done). A routine plan is 'missed' only once its day is in
+       the past, and only when no workout that day carried its routineId. */
+    function planStatus(plan, items, key, todayKey) {
+      if (!plan || typeof plan !== 'object') return 'none';
+      const list = Array.isArray(items) ? items : [];
+      if (plan.kind === 'rest') return 'planned';
+      if (planDoneOn(plan, list)) return 'done';
+      if (isPlanDayKey(String(key)) && isPlanDayKey(String(todayKey)) && String(key) < String(todayKey)) return 'missed';
+      return 'planned';
+    }
+
+    /* Display name for a plan: 'Rest day', the routine's name, or
+       'Deleted routine' when the routine is gone (still deletable). */
+    function planLabel(plan, routines) {
+      if (!plan || typeof plan !== 'object') return '';
+      if (plan.kind === 'rest') return 'Rest day';
+      const list = Array.isArray(routines) ? routines : [];
+      const rt = list.find(r => r && r.id === plan.routineId);
+      return rt ? String(rt.name) : 'Deleted routine';
+    }
+
+    /* Local week containing nowMs: how many days are planned and how many of
+       those plans were actually done. Rest days count as planned only. */
+    function computePlanWeek(plans, history, nowMs, weekStart) {
+      const map = normalizePlans(plans);
+      const byDay = historyByDay(history);
+      const ws = (weekStart === 0 || weekStart === 1) ? weekStart : getWeekStartDayNum();
+      const weekStartMs = startOfWeekMs(nowMs, ws);
+      let planned = 0;
+      let done = 0;
+      if (weekStartMs !== null) {
+        const todayKey = dayKeyLocal(nowMs);
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(weekStartMs);
+          d.setDate(d.getDate() + i);
+          const key = dayKeyLocal(d.getTime());
+          const plan = key ? map[key] : null;
+          if (!plan) continue;
+          planned++;
+          if (planStatus(plan, byDay[key] || [], key, todayKey) === 'done') done++;
+        }
+      }
+      return { planned: planned, done: done };
+    }
+
     /* Pure calendar model for one month: whole weeks of 7 (5 or 6 rows),
        padded with neighbouring days. Out-of-month days are never counted. */
     function buildCalendarModel(history, year, month, weekStart, nowMs) {
@@ -4953,23 +5061,40 @@
         head += '<div style="text-align:center; font-size:10px; color:var(--text-sub); font-weight:700; padding-bottom:4px;">'
           + names[(model.weekStart + i) % 7] + '</div>';
       }
-      const hasAny = Array.isArray(state.history) && state.history.length > 0;
+      const hasAny = (Array.isArray(state.history) && state.history.length > 0)
+        || Object.keys(normalizePlans(state.plans)).length > 0;
       let cellsHtml = '';
       if (!hasAny) {
         cellsHtml = '<div style="grid-column:1 / -1; text-align:center; color:var(--text-sub); font-size:13px; padding:14px 0;">No workouts yet</div>';
       } else {
+        /* P2-10: a plan only ever ADDS a marker; a plan alone never fills a
+           day. Trained days keep the existing blue style (plus a small ✓ when
+           a planned routine was finished), missed past plans get a dashed
+           outline, and today keeps its lime ring. */
+        const plans = normalizePlans(state.plans);
+        const byDay = historyByDay(state.history);
         cellsHtml = model.cells.map(c => {
           const filled = c.count > 0;
+          const plan = (c.inMonth && c.key) ? (plans[c.key] || null) : null;
+          const status = plan ? planStatus(plan, byDay[c.key] || [], c.key, model.todayKey) : 'none';
           let cellStyle = 'min-height:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:8px; font-size:12px; line-height:1.1;';
           if (filled) cellStyle += ' background:var(--primary); color:#fff; font-weight:700; cursor:pointer;';
-          else if (c.inMonth) cellStyle += ' background:var(--bg-elevated); color:var(--text);';
-          else cellStyle += ' background:transparent; color:var(--text-sub); opacity:0.45;';
+          else if (!c.inMonth) cellStyle += ' background:transparent; color:var(--text-sub); opacity:0.45;';
+          else if (status === 'missed') cellStyle += ' background:var(--bg-elevated); color:var(--text-sub); border:1px dashed var(--border); cursor:pointer;';
+          else cellStyle += ' background:var(--bg-elevated); color:var(--text);' + (c.inMonth ? ' cursor:pointer;' : '');
           /* Today keeps a lime ring, also on a trained (blue) day. */
           if (c.isToday) cellStyle += ' box-shadow:0 0 0 3px #a3e635 inset;' + (filled ? '' : ' font-weight:800; color:#a3e635;');
-          const click = filled ? ' onclick="openCalendarDay(\'' + esc(c.key) + '\')" role="button" tabindex="0"' : '';
+          let click = '';
+          if (c.inMonth && c.key) {
+            click = filled
+              ? ' onclick="openCalendarDay(\'' + esc(c.key) + '\')" role="button" tabindex="0"'
+              : ' onclick="openPlanDay(\'' + esc(c.key) + '\')" role="button" tabindex="0"';
+          }
           const badge = (filled && c.count > 1) ? '<div style="font-size:9px; font-weight:700; opacity:0.9;">' + c.count + '×</div>' : '';
-          return '<div class="cal-day' + (filled ? ' cal-day-filled' : '') + (c.isToday ? ' cal-day-today' : '') + '" data-key="' + esc(c.key || '') + '"' + click + ' style="' + cellStyle + '">'
-            + '<span>' + c.day + '</span>' + badge + '</div>';
+          const doneBadge = (status === 'done') ? '<div style="font-size:9px; font-weight:800; color:#a3e635;">✓</div>' : '';
+          const planDot = (!filled && status !== 'none') ? '<div style="font-size:9px; font-weight:800; color:' + (status === 'missed' ? 'var(--text-sub)' : '#a3e635') + ';">•</div>' : '';
+          return '<div class="cal-day' + (filled ? ' cal-day-filled' : '') + (c.isToday ? ' cal-day-today' : '') + (status === 'missed' ? ' cal-day-missed' : '') + '" data-key="' + esc(c.key || '') + '"' + click + ' style="' + cellStyle + '">'
+            + '<span>' + c.day + '</span>' + badge + doneBadge + planDot + '</div>';
         }).join('');
       }
       if (gridEl) {
@@ -4981,8 +5106,11 @@
 
       const cons = computeConsistency(state.history, nowMs, model.weekStart);
       if (consEl) {
+        /* P2-10: the existing line is untouched; the plan count is appended. */
+        const planWeek = computePlanWeek(state.plans, state.history, nowMs, model.weekStart);
         consEl.innerHTML = 'This week ' + cons.thisWeek + ' · This month ' + cons.thisMonth
-          + ' · Streak ' + cons.streakWeeks + (cons.streakWeeks === 1 ? ' week' : ' weeks');
+          + ' · Streak ' + cons.streakWeeks + (cons.streakWeeks === 1 ? ' week' : ' weeks')
+          + ' · Planned this week ' + planWeek.planned + ', done ' + planWeek.done;
       }
 
       const monthScoped = (calWorkloadRange === 'month');
@@ -5009,9 +5137,16 @@
     }
 
     /* Tap a trained day: one workout opens its detail sheet, two or more open
-       a small picker first. */
+       a small picker first. P2-10: when the day also has a plan, the shared
+       day sheet shows the plan line together with the workouts. */
     function openCalendarDay(key) {
-      const items = historyByDay(state.history)[String(key)] || [];
+      const k = String(key);
+      const items = historyByDay(state.history)[k] || [];
+      const plan = getPlan(k);
+      if (plan) {
+        planEditKey = null;
+        return openDaySheet(k, items, plan);
+      }
       if (!items.length) return false;
       if (items.length === 1) return openHistDetail(items[0].id);
       const first = new Date(Number(items[0].date));
@@ -5023,12 +5158,7 @@
       }
       const body = document.getElementById('calDayBody');
       if (body) {
-        body.innerHTML = items.map(w => {
-          const t = new Date(Number(w.date));
-          const timeStr = isFinite(t.getTime()) ? t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—';
-          return '<button class="btn btn-block" style="margin-bottom:8px; text-align:left;" data-wid="' + esc(String(w.id)) + '" onclick="openCalDayPick(this.getAttribute(\'data-wid\'))">'
-            + '<b>' + esc(w.title) + '</b> · ' + esc(timeStr) + ' · ' + (Number(w.totalSets) || 0) + ' sets</button>';
-        }).join('');
+        body.innerHTML = items.map(workoutButtonHtml).join('');
       }
       document.getElementById('calDayModal').classList.add('open');
       return true;
@@ -5041,6 +5171,279 @@
 
     function closeCalDay() {
       closeModal('calDayModal');
+    }
+
+    /* ---- P2-10 WEEK PLANNER UI (personal slice) ----
+       Plan / edit / move / delete a day, and copy a whole week forward. Every
+       write goes through savePlanForDay / saveRestPlanForDay / movePlan /
+       deletePlan; history is never touched and completion is never stored.
+       Supervisor decisions (2026-10-17): planning is allowed for today and
+       future days only; a rest day is never missed and never done. */
+
+    let planEditKey = null; // day key whose plan is being edited in the sheet
+
+    function todayPlanKey() { return dayKeyLocal(Date.now()); }
+
+    /* Planning is allowed for today and future local days only. */
+    function isPlanableDay(key) {
+      const today = todayPlanKey();
+      return isPlanDayKey(String(key)) && today !== null && String(key) >= today;
+    }
+
+    function formatDaySheetTitle(key) {
+      const d = new Date(String(key) + 'T00:00:00');
+      return isFinite(d.getTime())
+        ? d.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+        : 'Day';
+    }
+
+    /* Routine <select> (routines + Rest day) + Save; a change re-renders the
+       calendar, never the screen under the finger. */
+    function planEditorHtml(key, plan) {
+      const current = plan && plan.kind !== 'rest' ? String(plan.routineId || '') : (plan && plan.kind === 'rest' ? 'rest' : '');
+      const opts = state.routines.map(rt => '<option value="' + esc(rt.id) + '"' + (String(rt.id) === current ? ' selected' : '') + '>'
+        + esc(rt.name) + '</option>').join('');
+      return '<label style="font-size:12px; color:var(--text-sub);">Routine</label>'
+        + '<select id="planRoutineSelect" class="input-field" style="max-width:100%; min-height:44px; margin:6px 0 10px;">'
+        + opts
+        + '<option value="rest"' + (current === 'rest' ? ' selected' : '') + '>Rest day</option>'
+        + '</select>'
+        + '<button class="btn btn-primary btn-block" style="min-height:44px;" data-key="' + esc(key) + '" onclick="savePlanFromSelect(this.getAttribute(\'data-key\'))">Save plan</button>';
+    }
+
+    function workoutButtonHtml(w) {
+      const t = new Date(Number(w.date));
+      const timeStr = isFinite(t.getTime()) ? t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—';
+      return '<button class="btn btn-block" style="margin-bottom:8px; min-height:44px; text-align:left;" data-wid="' + esc(String(w.id)) + '" onclick="openCalDayPick(this.getAttribute(\'data-wid\'))">'
+        + '<b>' + esc(w.title) + '</b> · ' + esc(timeStr) + ' · ' + (Number(w.totalSets) || 0) + ' sets</button>';
+    }
+
+    /* The shared day sheet: the plan line (with its actions) above that day's
+       workouts. Used by both openPlanDay and openCalendarDay. */
+    function openDaySheet(key, items, plan) {
+      const k = String(key);
+      const list = Array.isArray(items) ? items : [];
+      const todayKey = todayPlanKey();
+      const status = planStatus(plan, list, k, todayKey);
+      const planable = isPlanableDay(k);
+      const titleEl = document.getElementById('calDayTitle');
+      if (titleEl) titleEl.innerText = formatDaySheetTitle(k);
+
+      let html = '';
+      if (plan && planEditKey === k) {
+        html += '<div style="font-size:14px; font-weight:700; margin-bottom:8px;">Edit plan</div>' + planEditorHtml(k, plan);
+      } else if (plan) {
+        const label = planLabel(plan, state.routines);
+        let line;
+        if (status === 'done') line = '✅ Done · ' + esc(label);
+        else if (plan.kind === 'rest') line = '😌 Rest day' + (list.length ? ' (trained anyway)' : '');
+        else if (status === 'missed' && list.length) line = '⚠️ Planned ' + esc(label) + ' — did another workout';
+        else if (status === 'missed') line = '⚠️ Missed · ' + esc(label);
+        else line = '📌 Planned · ' + esc(label);
+        html += '<div style="font-size:14px; font-weight:700; margin-bottom:8px;">' + line + '</div>'
+          + '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;">';
+        if (planable) {
+          html += '<button class="btn" style="flex:1; min-height:44px;" data-key="' + esc(k) + '" onclick="openPlanEditor(this.getAttribute(\'data-key\'))">✏️ Edit</button>';
+        }
+        html += '<button class="btn btn-danger" style="flex:1; min-height:44px;" data-key="' + esc(k) + '" onclick="deletePlan(this.getAttribute(\'data-key\'))">🗑 Delete</button>'
+          + '</div>';
+        if (!planable) {
+          html += '<div style="display:flex; gap:6px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">'
+            + '<input type="date" id="planMoveDate" class="input-field" style="flex:1; min-width:150px; max-width:100%; min-height:44px;" value="' + esc(todayKey || k) + '">'
+            + '<button class="btn" style="min-height:44px;" data-key="' + esc(k) + '" onclick="movePlanFromInput(this.getAttribute(\'data-key\'))">Move</button>'
+            + '</div>';
+        }
+        html += '<div style="font-size:11px; color:var(--text-sub); margin-bottom:8px;">A plan is not a workout: it never fills a day by itself.</div>';
+      } else if (planable) {
+        html += '<div style="font-size:14px; font-weight:700; margin-bottom:8px;">Plan this day</div>' + planEditorHtml(k, null);
+      } else {
+        html += '<div style="font-size:13px; color:var(--text-sub); margin-bottom:8px;">You can plan today or a future day. Past days only keep a plan you already made.</div>';
+      }
+
+      if (list.length) {
+        html += '<div style="border-top:1px solid var(--border); margin-top:6px; padding-top:10px;">'
+          + '<div style="font-size:12px; color:var(--text-sub); margin-bottom:6px;">Workouts this day</div>'
+          + list.map(workoutButtonHtml).join('')
+          + '</div>';
+      }
+
+      const body = document.getElementById('calDayBody');
+      if (body) body.innerHTML = html;
+      document.getElementById('calDayModal').classList.add('open');
+      return true;
+    }
+
+    /* Re-render the sheet in place when it is open (after a plan write). */
+    function refreshPlanSheet(key) {
+      const modal = document.getElementById('calDayModal');
+      if (!modal || !modal.classList.contains('open')) return;
+      openDaySheet(key, historyByDay(state.history)[String(key)] || [], getPlan(key));
+    }
+
+    function afterPlanChange(key) {
+      planEditKey = null;
+      renderTrainingCalendar();
+      renderRoutines();
+      refreshPlanSheet(key);
+    }
+
+    /* Tap an in-month day without a finished workout: plan it, or act on the
+       plan it already has. */
+    function openPlanDay(key) {
+      const k = String(key);
+      if (!isPlanDayKey(k)) return false;
+      planEditKey = null;
+      return openDaySheet(k, historyByDay(state.history)[k] || [], getPlan(k));
+    }
+
+    function openPlanEditor(key) {
+      planEditKey = String(key);
+      return openDaySheet(String(key), historyByDay(state.history)[String(key)] || [], getPlan(key));
+    }
+
+    function savePlanForDay(key, routineId) {
+      const k = String(key);
+      if (!isPlanableDay(k)) return false;
+      if (typeof routineId !== 'string' || routineId.trim() === '') return false;
+      state.plans = normalizePlans(state.plans);
+      state.plans[k] = { routineId: routineId, kind: 'routine', createdAt: Date.now() };
+      saveState();
+      afterPlanChange(k);
+      return true;
+    }
+
+    function saveRestPlanForDay(key) {
+      const k = String(key);
+      if (!isPlanableDay(k)) return false;
+      state.plans = normalizePlans(state.plans);
+      state.plans[k] = { routineId: null, kind: 'rest', createdAt: Date.now() };
+      saveState();
+      afterPlanChange(k);
+      return true;
+    }
+
+    function savePlanFromSelect(key) {
+      const sel = document.getElementById('planRoutineSelect');
+      const v = sel ? String(sel.value) : '';
+      if (v === 'rest') return saveRestPlanForDay(key);
+      if (v) return savePlanForDay(key, v);
+      return false;
+    }
+
+    function deletePlan(key) {
+      const k = String(key);
+      state.plans = normalizePlans(state.plans);
+      if (!state.plans[k]) return false;
+      delete state.plans[k];
+      saveState();
+      planEditKey = null;
+      renderTrainingCalendar();
+      renderRoutines();
+      closeCalDay();
+      return true;
+    }
+
+    /* Move a plan to another day: never overwrites an existing plan and never
+       lands in the past (planning is today/future only). */
+    function movePlan(key, newKey) {
+      const from = String(key);
+      const to = String(newKey);
+      state.plans = normalizePlans(state.plans);
+      const plan = state.plans[from];
+      if (!plan) return false;
+      if (!isPlanableDay(to)) { alert('Pick today or a future day to move the plan to.'); return false; }
+      if (to === from) return true;
+      if (state.plans[to]) { alert('That day already has a plan.'); return false; }
+      state.plans[to] = { routineId: plan.routineId, kind: plan.kind, createdAt: plan.createdAt };
+      delete state.plans[from];
+      saveState();
+      planEditKey = null;
+      renderTrainingCalendar();
+      renderRoutines();
+      closeCalDay();
+      return true;
+    }
+
+    function movePlanFromInput(key) {
+      const input = document.getElementById('planMoveDate');
+      return movePlan(key, input ? String(input.value) : '');
+    }
+
+    /* ---- P2-10 TODAY CARD (Workout tab) ----
+       Shows today's plan with a one-tap Start. Derived from history + plans on
+       every render, so it follows an app left open across midnight whenever the
+       tab is switched. No plan -> nothing rendered. */
+    function renderTodayPlan() {
+      const el = document.getElementById('todayPlanCard');
+      if (!el) return;
+      const key = todayPlanKey();
+      const plan = key ? getPlan(key) : null;
+      if (!plan) { el.innerHTML = ''; return; }
+      const items = historyByDay(state.history)[key] || [];
+      const status = planStatus(plan, items, key, key);
+      const label = planLabel(plan, state.routines);
+      const cardOpen = '<div class="card" style="max-width:412px; margin-left:auto; margin-right:auto;">';
+      if (status === 'done') {
+        el.innerHTML = cardOpen
+          + '<div style="font-size:15px; font-weight:700;">✅ Today: ' + esc(label) + ' — done</div>'
+          + '<div style="font-size:12px; color:var(--text-sub); margin-top:4px;">Finished today. Nothing left to do.</div></div>';
+        return;
+      }
+      if (plan.kind === 'rest') {
+        el.innerHTML = cardOpen
+          + '<div style="font-size:15px; font-weight:700;">😌 Today: Rest day</div>'
+          + '<div style="font-size:12px; color:var(--text-sub); margin-top:4px;">'
+          + (items.length ? 'You trained anyway — the day counts.' : 'No workout planned today. Recovery is the plan.')
+          + '</div></div>';
+        return;
+      }
+      const exists = state.routines.some(r => r && r.id === plan.routineId);
+      el.innerHTML = cardOpen
+        + '<div style="font-size:15px; font-weight:700;">📌 Today: ' + esc(label) + '</div>'
+        + (exists
+          ? '<button class="btn btn-primary btn-block" style="margin-top:8px; min-height:44px;" onclick="startTodayPlanWorkout()">▶ Start ' + esc(label) + '</button>'
+          : '<div style="font-size:12px; color:var(--text-sub); margin-top:4px;">That routine no longer exists. Pick another routine, or delete the plan in the calendar.</div>')
+        + '</div>';
+    }
+
+    function startTodayPlanWorkout() {
+      const key = todayPlanKey();
+      const plan = key ? getPlan(key) : null;
+      if (!plan || plan.kind !== 'routine' || !plan.routineId) return false;
+      if (!state.routines.some(r => r && r.id === plan.routineId)) return false;
+      startRoutineWorkout(plan.routineId);
+      return true;
+    }
+
+    /* Copy TODAY'S local week forward by 7 days. A target day that already has
+       a plan is left alone - nothing is ever overwritten. */
+    function copyWeekToNextWeek() {
+      state.plans = normalizePlans(state.plans);
+      const startMs = startOfWeekMs(Date.now(), getWeekStartDayNum());
+      let copied = 0;
+      if (startMs !== null) {
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(startMs);
+          d.setDate(d.getDate() + i);
+          const from = dayKeyLocal(d.getTime());
+          if (!from || !state.plans[from]) continue;
+          const t = new Date(d);
+          t.setDate(t.getDate() + 7);
+          const to = dayKeyLocal(t.getTime());
+          if (!to || state.plans[to]) continue;
+          state.plans[to] = { routineId: state.plans[from].routineId, kind: state.plans[from].kind, createdAt: Date.now() };
+          copied++;
+        }
+      }
+      if (copied > 0) saveState();
+      const msg = document.getElementById('planCopyMsg');
+      if (msg) {
+        msg.innerText = copied === 0
+          ? 'Nothing to copy.'
+          : ('Copied ' + copied + ' plan' + (copied === 1 ? '' : 's') + ' to next week.');
+      }
+      renderTrainingCalendar();
+      return copied;
     }
 
     /* PROFILE & ANALYTICS */
@@ -5735,6 +6138,8 @@
       if (!Array.isArray(target.history)) target.history = [];
       if (target.prevScope !== 'same' && target.prevScope !== 'any') target.prevScope = 'any';
       target.plateSettings = normalizePlateSettings(target.plateSettings);
+      // P2-10: optional plans, normalised on every load (no schema bump).
+      target.plans = normalizePlans(target.plans);
       return target;
     }
 
@@ -5776,6 +6181,9 @@
       if (data.unit !== 'KG' && data.unit !== 'LBS') data.unit = 'KG';
       if (data.prevScope !== 'same' && data.prevScope !== 'any') data.prevScope = 'any';
       data.plateSettings = normalizePlateSettings(data.plateSettings);
+      // P2-10: a backup without plans restores fine (gains plans:{}); one with
+      // plans keeps them (invalid entries dropped). Nothing is ever refused.
+      data.plans = normalizePlans(data.plans);
       // P1-05: keep a valid profile from the backup (missing stays missing,
       // which never forces onboarding); no getting-started surprise on
       // restore unless the backup explicitly left the card up.
@@ -5964,6 +6372,8 @@
       pendingRestore = null;
       normalizeExercises(state);
       ensureHistoryIds(state.history);
+      // P2-10: keep the plans that came with the backup (invalid dropped).
+      state.plans = normalizePlans(state.plans);
       if (!state.unit) state.unit = 'KG';
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
       if (state.profile && typeof state.profile === 'object' && !Array.isArray(state.profile)) {
@@ -6009,6 +6419,9 @@
       state = saved;
       normalizeExercises(state);
       if (state.prevScope !== 'same' && state.prevScope !== 'any') state.prevScope = 'any';
+      // P2-10: the snapshot was taken from a normalised state, so this is a
+      // no-op safety net for plans written by older code.
+      state.plans = normalizePlans(state.plans);
       try {
         // Write back the exact snapshot string so undo restores data byte-for-byte.
         localStorage.setItem('hevy_clone_state', raw);
