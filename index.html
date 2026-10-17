@@ -4929,6 +4929,7 @@
     /* History tab entry point: same profile route as the bottom nav. */
     function goToTrainingCalendar() {
       const navs = document.querySelectorAll('.nav-item');
+      calMonth = null; /* the History button always opens on this month */
       switchTab('profile', (navs && navs[3]) ? navs[3] : document.getElementById('tab-profile'));
       try {
         const card = document.getElementById('calendarCard');
@@ -4963,7 +4964,8 @@
           if (filled) cellStyle += ' background:var(--primary); color:#fff; font-weight:700; cursor:pointer;';
           else if (c.inMonth) cellStyle += ' background:var(--bg-elevated); color:var(--text);';
           else cellStyle += ' background:transparent; color:var(--text-sub); opacity:0.45;';
-          if (c.isToday) cellStyle += ' outline:2px solid var(--primary); outline-offset:-2px;' + (filled ? '' : ' font-weight:800; color:var(--primary);');
+          /* Today keeps a lime ring, also on a trained (blue) day. */
+          if (c.isToday) cellStyle += ' box-shadow:0 0 0 3px #a3e635 inset;' + (filled ? '' : ' font-weight:800; color:#a3e635;');
           const click = filled ? ' onclick="openCalendarDay(\'' + esc(c.key) + '\')" role="button" tabindex="0"' : '';
           const badge = (filled && c.count > 1) ? '<div style="font-size:9px; font-weight:700; opacity:0.9;">' + c.count + '×</div>' : '';
           return '<div class="cal-day' + (filled ? ' cal-day-filled' : '') + (c.isToday ? ' cal-day-today' : '') + '" data-key="' + esc(c.key || '') + '"' + click + ' style="' + cellStyle + '">'
