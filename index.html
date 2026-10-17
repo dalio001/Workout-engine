@@ -6455,6 +6455,27 @@
       document.getElementById(id).classList.remove('open');
     }
 
+    /* A window opened on top of another (e.g. the exercise list from Create
+       Routine) must be in front of it: each newly opened .modal gets the next
+       z-index. Same order in the page used to hide the list behind. */
+    let modalZ = 200;
+    function bringModalToFront(el) {
+      modalZ += 1;
+      el.style.zIndex = String(modalZ);
+    }
+    if (typeof MutationObserver === 'function' && typeof document.querySelectorAll === 'function') {
+      try {
+        const modalObserver = new MutationObserver(list => {
+          list.forEach(m => {
+            const el = m.target;
+            const wasOpen = String(m.oldValue || '').split(/\s+/).indexOf('open') >= 0;
+            if (el.classList && el.classList.contains('open') && !wasOpen) bringModalToFront(el);
+          });
+        });
+        document.querySelectorAll('.modal').forEach(el => modalObserver.observe(el, { attributes: true, attributeFilter: ['class'], attributeOldValue: true }));
+      } catch (e) {}
+    }
+
     function exportData() {
       const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
