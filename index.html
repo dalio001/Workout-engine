@@ -1057,6 +1057,9 @@
   <!-- FIRST-RUN ONBOARDING (P1-05): full-screen flow, rendered by renderOnboarding() -->
   <div class="ob-overlay" id="onboardingOverlay"></div>
 
+  <!-- P0-01: offline indicator. Fixed pill, never blocks a tap. -->
+  <div id="offlinePill" role="status" aria-live="polite" style="display:none; position:fixed; left:12px; right:12px; bottom:16px; z-index:1200; max-width:412px; margin:0 auto; padding:10px 14px; border-radius:999px; background:#0f172a; color:#e2e8f0; border:1px solid rgba(148,163,184,0.35); font-size:13px; font-weight:700; text-align:center; box-shadow:0 6px 20px rgba(0,0,0,0.45); pointer-events:none;">Offline — your workouts are saved on this phone</div>
+
   <script>
     /* DEFAULT EXERCISES & ROUTINES */
     /* P2-06 personal catalogue (curated, ~100): compact rows
@@ -1737,7 +1740,12 @@
               try {
                 const d = JSON.parse(rawDraft);
                 migrateActiveDraftWeightsToKg(d, savedUnit);
+                // P0-01: keep one savedAt stamp on both copies so the resume
+                // comparison stays meaningful after a migration rewrite.
+                d.savedAt = draftSavedAtOf(d) || Date.now();
                 try { localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(d)); } catch (e) {}
+                mirrorRecord = { savedAt: d.savedAt, draft: d };
+                queueDraftMirror(d);
               } catch (e) {}
             }
           } else {
@@ -1784,6 +1792,21 @@
 
       const draft = loadActiveSessionDraft();
       if (draft) showResumeModal('load');
+
+      // P0-01: the IndexedDB mirror can be NEWER than the localStorage copy
+      // (the tick a few seconds before Android killed the app). Read it once
+      // at startup; if the mirror wins, offer IT for resume, and offer resume
+      // at all when the localStorage write was lost entirely.
+      draftMirrorReady = readDraftMirrorRecord().then(function(value) {
+        mirrorRecord = asDraftRecord(value);
+        if (!mirrorRecord) return null;
+        const local = readLocalDraftRecord();
+        if (local && mirrorRecord.savedAt <= local.savedAt) return null;
+        if (!activeWorkout && !document.getElementById('resumeModal').classList.contains('open')) {
+          showResumeModal('load');
+        }
+        return mirrorRecord.draft;
+      }).catch(function() { return null; });
     }
 
     /* P0-02: DURABLE LIVE SESSION (key hevy_clone_active_session; hevy_clone_state untouched; keys kept so existing saved workouts survive the PLZ FitZone rename) */
@@ -1797,6 +1820,142 @@
       if (el) el.style.display = 'none';
     }
 
+    /* P0-01: INDEXEDDB MIRROR OF THE LIVE DRAFT --------------------------
+       localStorage is written synchronously but is not flushed to disk at
+       once: on the phone, a tick made a few seconds before Android killed
+       the app was lost, while a tick 10 s earlier survived (verified
+       2026-10-17, Pixel 8 emulator in airplane mode). So every draft save is
+       ALSO mirrored into IndexedDB with the same savedAt stamp. On resume the
+       NEWER of the two copies wins, and finishing/discarding clears both.
+       Everything here fails silently when IndexedDB is unavailable (private
+       mode, file://, the test harness). */
+    const DRAFT_DB_NAME = 'plz_fitzone_draft';
+    const DRAFT_DB_VERSION = 1;
+    const DRAFT_STORE_NAME = 'drafts';
+    const DRAFT_MIRROR_KEY = 'active_session';
+    let draftDbPromise = null;
+    let mirrorRecord = null;                      // { savedAt, draft } from IndexedDB
+    let draftMirrorChain = Promise.resolve();     // serialises mirror writes/clears
+    let draftMirrorReady = Promise.resolve(null); // startup read (tests await this)
+
+    function draftMirrorSupported() {
+      try {
+        return typeof indexedDB !== 'undefined' && !!indexedDB &&
+          typeof indexedDB.open === 'function';
+      } catch (e) { return false; }
+    }
+
+    function openDraftDb() {
+      if (!draftMirrorSupported()) return Promise.resolve(null);
+      if (draftDbPromise) return draftDbPromise;
+      draftDbPromise = new Promise(function(resolve) {
+        try {
+          const req = indexedDB.open(DRAFT_DB_NAME, DRAFT_DB_VERSION);
+          req.onupgradeneeded = function() {
+            try {
+              const db = req.result;
+              if (db && db.objectStoreNames && !db.objectStoreNames.contains(DRAFT_STORE_NAME)) {
+                db.createObjectStore(DRAFT_STORE_NAME);
+              }
+            } catch (e) {}
+          };
+          req.onsuccess = function() { resolve(req.result || null); };
+          req.onerror = function() { draftDbPromise = null; resolve(null); };
+          req.onblocked = function() { draftDbPromise = null; resolve(null); };
+        } catch (e) { draftDbPromise = null; resolve(null); }
+      });
+      return draftDbPromise;
+    }
+
+    function draftTransaction(db, mode) {
+      // durability 'strict' asks Chrome to flush before the transaction is
+      // reported complete — the whole point of the mirror. Engines that do
+      // not know the option fall back to the plain call.
+      try {
+        return db.transaction(DRAFT_STORE_NAME, mode, { durability: 'strict' });
+      } catch (e) {
+        return db.transaction(DRAFT_STORE_NAME, mode);
+      }
+    }
+
+    function draftWriteTx(run) {
+      try {
+        if (!draftMirrorSupported()) return Promise.resolve(false);
+        return openDraftDb().then(function(db) {
+          if (!db) return false;
+          return new Promise(function(resolve) {
+            try {
+              const tx = draftTransaction(db, 'readwrite');
+              tx.oncomplete = function() { resolve(true); };
+              tx.onerror = function() { resolve(false); };
+              tx.onabort = function() { resolve(false); };
+              run(tx.objectStore(DRAFT_STORE_NAME));
+            } catch (e) { resolve(false); }
+          });
+        }).catch(function() { return false; });
+      } catch (e) { return Promise.resolve(false); }
+    }
+
+    function writeDraftMirror(draft) {
+      return draftWriteTx(function(store) { store.put(draft, DRAFT_MIRROR_KEY); });
+    }
+
+    function clearDraftMirror() {
+      return draftWriteTx(function(store) { store.delete(DRAFT_MIRROR_KEY); });
+    }
+
+    function readDraftMirrorRecord() {
+      return new Promise(function(resolve) {
+        try {
+          if (!draftMirrorSupported()) { resolve(null); return; }
+          openDraftDb().then(function(db) {
+            if (!db) { resolve(null); return; }
+            try {
+              const tx = db.transaction(DRAFT_STORE_NAME, 'readonly');
+              const req = tx.objectStore(DRAFT_STORE_NAME).get(DRAFT_MIRROR_KEY);
+              req.onsuccess = function() { resolve(req.result || null); };
+              req.onerror = function() { resolve(null); };
+              tx.onabort = function() { resolve(null); };
+            } catch (e) { resolve(null); }
+          }).catch(function() { resolve(null); });
+        } catch (e) { resolve(null); }
+      });
+    }
+
+    function draftSavedAtOf(obj) {
+      return (obj && typeof obj.savedAt === 'number' && isFinite(obj.savedAt) && obj.savedAt > 0)
+        ? obj.savedAt : 0;
+    }
+
+    function asDraftRecord(value) {
+      if (!value || typeof value !== 'object') return null;
+      if (typeof value.startTime !== 'number' || !Array.isArray(value.exercises)) return null;
+      return { savedAt: draftSavedAtOf(value), draft: value };
+    }
+
+    function queueDraftMirror(draft) {
+      try {
+        draftMirrorChain = draftMirrorChain.then(function() {
+          return writeDraftMirror(draft);
+        }).catch(function() { return false; });
+      } catch (e) {}
+    }
+
+    function queueDraftMirrorClear() {
+      try {
+        mirrorRecord = null;
+        draftMirrorChain = draftMirrorChain.then(function() {
+          return clearDraftMirror();
+        }).catch(function() { return false; });
+      } catch (e) {}
+    }
+
+    function readLocalDraftRecord() {
+      const raw = loadActiveSessionDraftRaw();
+      if (!raw) return null;
+      try { return asDraftRecord(JSON.parse(raw)); } catch (e) { return null; }
+    }
+
     function saveActiveSession() {
       if (!activeWorkout) return;
       const draft = {
@@ -1804,7 +1963,8 @@
         startTime: activeWorkout.startTime,
         exercises: activeWorkout.exercises,
         restDeadline: restDeadline,
-        routineId: activeWorkout.routineId || null
+        routineId: activeWorkout.routineId || null,
+        savedAt: Date.now()
       };
       try {
         localStorage.setItem(ACTIVE_SESSION_KEY, JSON.stringify(draft));
@@ -1812,10 +1972,22 @@
       } catch (e) {
         showDraftSaveWarning();
       }
+      // P0-01: mirror it, so a tick seconds before the process is killed is
+      // still on the phone when the app is opened again.
+      mirrorRecord = { savedAt: draft.savedAt, draft: draft };
+      queueDraftMirror(draft);
     }
 
-    function clearActiveSessionStorage() {
+    /* Local key only: used when the localStorage copy itself is unusable
+       (the IndexedDB mirror may still hold a good draft). */
+    function clearActiveSessionLocal() {
       try { localStorage.removeItem(ACTIVE_SESSION_KEY); } catch (e) {}
+    }
+
+    /* Both copies: finishing, discarding and "discard the draft" on restore. */
+    function clearActiveSessionStorage() {
+      clearActiveSessionLocal();
+      queueDraftMirrorClear();
     }
 
     function loadActiveSessionDraftRaw() {
@@ -1823,20 +1995,16 @@
     }
 
     function loadActiveSessionDraft() {
-      let raw = null;
-      try { raw = localStorage.getItem(ACTIVE_SESSION_KEY); } catch (e) { return null; }
-      if (!raw) return null;
-      try {
-        const d = JSON.parse(raw);
-        if (!d || typeof d.startTime !== 'number' || !Array.isArray(d.exercises)) {
-          clearActiveSessionStorage();
-          return null;
-        }
-        return d;
-      } catch (e) {
-        clearActiveSessionStorage();
-        return null;
+      const local = readLocalDraftRecord();
+      if (!local) {
+        // Drop a corrupt/legacy copy, then fall back to the mirror: when the
+        // localStorage write itself was lost, that copy is all there is.
+        if (loadActiveSessionDraftRaw() != null) clearActiveSessionLocal();
+        return mirrorRecord ? mirrorRecord.draft : null;
       }
+      // Both copies exist: the newest save wins (savedAt stamps are local).
+      if (mirrorRecord && mirrorRecord.savedAt > local.savedAt) return mirrorRecord.draft;
+      return local.draft;
     }
 
     function showResumeModal(mode) {
@@ -6514,6 +6682,45 @@
     }
 
     init();
+
+    /* P0-01: OFFLINE PILL ------------------------------------------------
+       The app never needs the network (no server, no CDN). The pill only
+       tells the owner that nothing is syncing right now. It is a fixed,
+       harmless overlay: pointer-events:none, so it can never block a tap. */
+    function updateOfflinePill() {
+      try {
+        const el = document.getElementById('offlinePill');
+        if (!el) return;
+        el.style.display = (navigator && navigator.onLine === false) ? 'block' : 'none';
+      } catch (e) {}
+    }
+
+    /* P0-01: PERSISTENT STORAGE ------------------------------------------
+       Ask the browser to keep this origin's data instead of evicting it under
+       storage pressure. Best effort: a refusal (or no support) changes
+       nothing, so it is requested once and never surfaced. */
+    function requestPersistentStorage() {
+      try {
+        if (!navigator || !navigator.storage || typeof navigator.storage.persist !== 'function') return;
+        const p = navigator.storage.persist();
+        if (p && typeof p.catch === 'function') p.catch(function() {});
+      } catch (e) {}
+    }
+
+    try {
+      window.addEventListener('online', updateOfflinePill);
+      window.addEventListener('offline', updateOfflinePill);
+      // P0-01: flush the draft the moment the page is backgrounded or closed,
+      // so the newest tick reaches BOTH stores before Android may kill us.
+      window.addEventListener('pagehide', function() {
+        try { if (activeWorkout) saveActiveSession(); } catch (e) {}
+      });
+      document.addEventListener('visibilitychange', function() {
+        try { if (document.visibilityState === 'hidden' && activeWorkout) saveActiveSession(); } catch (e) {}
+      });
+    } catch (e) {}
+    updateOfflinePill();
+    requestPersistentStorage();
 
     /* PLZ FitZone installability: register service worker; fail silently when
        service workers are unavailable (e.g. file://). */

@@ -58,4 +58,42 @@ describe('static delivery checks', () => {
     assert.equal(count, 1, 'title only; body starts with counts');
     assert.ok(html.includes('<span>Restore this backup?</span>'), 'title kept in modal header');
   });
+
+  it('sw.js CACHE_VERSION is bumped to v3', () => {
+    const sw = readFileSync(SW_PATH, 'utf8');
+    assert.ok(sw.includes("var CACHE_VERSION = 'plz-fitzone-v3';"), 'v3 cache version');
+  });
+
+  it('sw.js precaches every local asset referenced by index.html', () => {
+    const html = loadIndexHtml();
+    const sw = readFileSync(SW_PATH, 'utf8');
+    const refs = new Set();
+    for (const m of html.matchAll(/(?:src|href)="\.\/([^"]+)"/g)) refs.add('./' + m[1]);
+    for (const m of html.matchAll(/src='\.\/([^']+)'/g)) refs.add('./' + m[1]);
+    assert.ok(refs.size >= 4, `found the page asset references (${refs.size})`);
+    for (const ref of refs) {
+      const rel = ref.replace(/^\.\//, '');
+      assert.ok(existsSync(path.join(REPO_ROOT, rel)), `referenced asset exists: ${ref}`);
+      assert.ok(sw.includes("'" + ref + "'"), `sw.js precaches ${ref}`);
+    }
+    assert.ok(refs.has('./assets/brand/plz-fitzone-mascot.jpg'), 'onboarding mascot is referenced and precached');
+  });
+
+  it('sw.js page fetch uses a network timeout before the cache fallback', () => {
+    const sw = readFileSync(SW_PATH, 'utf8');
+    assert.ok(sw.includes('var NETWORK_TIMEOUT_MS'), 'timeout constant');
+    assert.ok(sw.includes('AbortController'), 'aborts the slow request');
+    const timeoutIdx = sw.indexOf('fetchWithTimeout(request, NETWORK_TIMEOUT_MS)');
+    const cacheIdx = sw.indexOf("caches.match('./index.html')");
+    assert.ok(timeoutIdx > 0, 'page request goes through fetchWithTimeout');
+    assert.ok(cacheIdx > 0, 'cache fallback kept');
+    assert.ok(timeoutIdx < cacheIdx, 'timeout first, cache fallback after');
+  });
+
+  it('index.html includes the offline pill markup', () => {
+    const html = loadIndexHtml();
+    assert.ok(html.includes('id="offlinePill"'), 'pill element');
+    assert.ok(html.includes('Offline — your workouts are saved on this phone'), 'pill text');
+    assert.ok(html.includes('pointer-events:none'), 'pill never blocks a tap');
+  });
 });

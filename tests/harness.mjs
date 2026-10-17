@@ -59,10 +59,11 @@ function makeClassList() {
 // Minimal element stub: accepts innerHTML/value/classList/style/
 // addEventListener and nothing else. Enough for every render path in
 // index.html (routines, history, stats, drawer, modals, banners).
-export function makeElement(tag = 'div') {
-  return {
+// `onHtml` (optional) is called with every innerHTML assignment, so a
+// document can register the ids a render produced (as a browser would).
+export function makeElement(tag = 'div', onHtml = null) {
+  const el = {
     tagName: String(tag).toUpperCase(),
-    innerHTML: '',
     innerText: '',
     textContent: '',
     value: '',
@@ -81,21 +82,159 @@ export function makeElement(tag = 'div') {
     querySelector() { return null; },
     querySelectorAll() { return []; },
   };
+  let html = '';
+  Object.defineProperty(el, 'innerHTML', {
+    get() { return html; },
+    set(v) {
+      html = String(v);
+      if (typeof onHtml === 'function') onHtml(html);
+    },
+    enumerable: true,
+    configurable: true,
+  });
+  return el;
+}
+
+// Every id present in the static index.html markup, read once.
+let markupIdsCache = null;
+function markupIds() {
+  if (markupIdsCache) return markupIdsCache;
+  markupIdsCache = new Set();
+  for (const m of loadIndexHtml().matchAll(/id="([^"]+)"/g)) markupIdsCache.add(m[1]);
+  return markupIdsCache;
 }
 
 export function makeDocument() {
   const byId = new Map();
+  for (const id of markupIds()) byId.set(id, makeElement());
+  // Rendered HTML really exists in a browser: ids written into any innerHTML
+  // must be findable afterwards (set rows, pickers, detail panes).
+  const registerHtmlIds = (html) => {
+    if (typeof html !== 'string' || html.indexOf('id=') < 0) return;
+    for (const m of html.matchAll(/id="([^"]+)"/g)) {
+      if (!byId.has(m[1])) byId.set(m[1], makeElement('div', registerHtmlIds));
+    }
+  };
+  const body = makeElement('body');
+  const pushChild = body.appendChild.bind(body);
+  // Banners (updateBar) are appended to document.body and then looked up by
+  // id, so an appended child must be findable through getElementById.
+  body.appendChild = (child) => {
+    if (child && child.id) byId.set(String(child.id), child);
+    return pushChild(child);
+  };
   return {
     _byId: byId,
+    body,
+    // Unknown ids return null, exactly like a browser: the app uses
+    // getElementById both to find static markup and to test whether it has
+    // already created something (the "New version" bar).
     getElementById(id) {
-      if (!byId.has(id)) byId.set(id, makeElement());
-      return byId.get(id);
+      return byId.has(String(id)) ? byId.get(String(id)) : null;
     },
-    createElement(tag) { return makeElement(tag); },
+    createElement(tag) { return makeElement(tag, registerHtmlIds); },
+    // No-op by default (today's behaviour); createApp({listeners:true}) records.
+    addEventListener() {},
+    removeEventListener() {},
     // confirmRestore/showRestorePreview guard null, so null is faithful.
     querySelector() { return null; },
     // switchTab() indexes [1] and forEach()es; two stubs keep that path real.
     querySelectorAll() { return [makeElement(), makeElement()]; },
+  };
+}
+
+// ---- Optional fake IndexedDB (P0-01 draft mirror) ------------------------
+// Only what the app uses: open() with onupgradeneeded/onsuccess,
+// objectStoreNames.contains, createObjectStore, transaction(store, mode[,
+// options]), objectStore().put/get/delete and tx.oncomplete/onerror. Values
+// are snapshotted like a structured clone, so a written mirror record can
+// never change afterwards.
+function cloneValue(value) {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(cloneValue);
+  const out = {};
+  for (const k of Object.keys(value)) out[k] = cloneValue(value[k]);
+  return out;
+}
+
+export function makeFakeIndexedDB() {
+  const dbs = new Map(); // name -> { version, stores: Map<storeName, Map> }
+  function dbEntry(name, version) {
+    let db = dbs.get(name);
+    if (!db) {
+      db = { version: typeof version === 'number' ? version : 1, stores: new Map() };
+      dbs.set(name, db);
+    }
+    return db;
+  }
+  return {
+    _dbs: dbs,
+    _dump(dbName, storeName) {
+      const db = dbs.get(dbName);
+      return (db && db.stores.get(storeName)) || new Map();
+    },
+    _seed(dbName, storeName, key, value) {
+      const db = dbEntry(dbName, 1);
+      if (!db.stores.has(storeName)) db.stores.set(storeName, new Map());
+      db.stores.get(storeName).set(key, cloneValue(value));
+    },
+    open(name, version) {
+      const req = { result: null, onupgradeneeded: null, onsuccess: null, onerror: null, onblocked: null };
+      const upgrade = !dbs.has(name) || (typeof version === 'number' && version > dbs.get(name).version);
+      const db = dbEntry(name, version);
+      if (upgrade && typeof version === 'number') db.version = version;
+      const txFor = (storeName, mode) => {
+        if (!db.stores.has(storeName)) db.stores.set(storeName, new Map());
+        const map = db.stores.get(storeName);
+        const tx = {
+          mode, error: null, oncomplete: null, onerror: null, onabort: null,
+          objectStore: () => store,
+          abort() {},
+        };
+        const store = {
+          name: storeName,
+          put(value, key) {
+            const r = { result: key, onsuccess: null, onerror: null };
+            map.set(key, cloneValue(value));
+            queueMicrotask(() => { if (typeof tx.oncomplete === 'function') tx.oncomplete({ target: tx }); });
+            return r;
+          },
+          get(key) {
+            const r = { result: undefined, onsuccess: null, onerror: null };
+            r.result = map.has(key) ? cloneValue(map.get(key)) : undefined;
+            queueMicrotask(() => { if (typeof r.onsuccess === 'function') r.onsuccess({ target: r }); });
+            return r;
+          },
+          delete(key) {
+            const r = { result: undefined, onsuccess: null, onerror: null };
+            map.delete(key);
+            queueMicrotask(() => { if (typeof tx.oncomplete === 'function') tx.oncomplete({ target: tx }); });
+            return r;
+          },
+        };
+        return tx;
+      };
+      req.result = {
+        name,
+        version: db.version,
+        objectStoreNames: { contains: (n) => db.stores.has(String(n)) },
+        createObjectStore(n) {
+          if (!db.stores.has(String(n))) db.stores.set(String(n), new Map());
+          return { name: String(n) };
+        },
+        transaction: txFor,
+        close() {},
+      };
+      queueMicrotask(() => {
+        try {
+          if (upgrade && typeof req.onupgradeneeded === 'function') req.onupgradeneeded({ target: req });
+          if (typeof req.onsuccess === 'function') req.onsuccess({ target: req });
+        } catch (e) {
+          if (typeof req.onerror === 'function') req.onerror({ target: req });
+        }
+      });
+      return req;
+    },
   };
 }
 
@@ -186,6 +325,12 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   get pendingDeleteHistId(){ return pendingDeleteHistId; },
   get deletedHistBackup(){ return deletedHistBackup; },
   loadActiveSessionDraft, loadActiveSessionDraftRaw, resumeSavedWorkout, discardSavedDraft,
+  saveActiveSession, updateOfflinePill, requestPersistentStorage,
+  clearActiveSessionLocal, clearActiveSessionStorage, readDraftMirrorRecord,
+  get draftMirrorChain(){ return draftMirrorChain; },
+  get draftMirrorReady(){ return draftMirrorReady; },
+  get mirrorRecord(){ return mirrorRecord; },
+  get draftMirrorSupported(){ return draftMirrorSupported(); },
   saveState,
   migrateParsedStateToV2, applySeedDefaults,
   validateBackupData, describeRestoreSummary, showRestorePreview,
@@ -225,19 +370,45 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
 
 // Creates one app instance: runs init() (the script self-initializes) in a
 // fresh JS context. Pass the same `store` Map to simulate a reload.
+//
+// Optional (all default to today's behaviour):
+//   options.confirmResult  result of confirm()
+//   options.navigator      object used as `navigator` (mutable: online/offline)
+//   options.location       injected as `location` (default: absent)
+//   options.fetch          injected as `fetch` (default: absent)
+//   options.indexedDB      injected as `indexedDB` (see makeFakeIndexedDB)
+//   options.listeners      record window/document listeners; fire them with
+//                          app.fire(type[, event])
 export function createApp(options = {}) {
   const store = options.store || new Map();
   const document = makeDocument();
   const alerts = [];
   const confirms = [];
   let confirmResult = options.confirmResult !== undefined ? options.confirmResult : true;
+  const trackListeners = !!options.listeners;
+  const listeners = [];
+  const navigatorObj = options.navigator || {};
+
+  if (trackListeners) {
+    document.addEventListener = (type, fn) => {
+      if (typeof fn === 'function') listeners.push({ target: 'document', type: String(type), fn });
+    };
+    document.removeEventListener = () => {};
+  }
 
   const sandbox = {
     console,
     localStorage: makeLocalStorage(store),
     document,
-    window: { addEventListener() {} },
-    navigator: {},
+    window: {
+      addEventListener(type, fn) {
+        if (trackListeners && typeof fn === 'function') {
+          listeners.push({ target: 'window', type: String(type), fn });
+        }
+      },
+      removeEventListener() {},
+    },
+    navigator: navigatorObj,
     alert: (msg) => { alerts.push(String(msg)); },
     confirm: (msg) => { confirms.push(String(msg)); return confirmResult; },
     // Timers must not keep the test process alive; the app stores absolute
@@ -250,6 +421,9 @@ export function createApp(options = {}) {
     URL: { createObjectURL: () => 'blob:fake', revokeObjectURL: () => {} },
     FileReader: function FileReader() {},
   };
+  if (options.location) sandbox.location = options.location;
+  if (typeof options.fetch === 'function') sandbox.fetch = options.fetch;
+  if (options.indexedDB) sandbox.indexedDB = options.indexedDB;
   vm.createContext(sandbox);
   const src = options.scriptSrc || loadAppScript();
   vm.runInContext(src + EXPORT_SNIPPET, sandbox, { filename: 'index.html<script>' });
@@ -259,9 +433,17 @@ export function createApp(options = {}) {
     document,
     alerts,
     confirms,
+    listeners,
+    navigator: navigatorObj,
     setConfirmResult(v) { confirmResult = v; },
     api: sandbox.__app,
     el: (id) => document.getElementById(id),
     stateJson() { return JSON.stringify(sandbox.__app.state); },
+    // Dispatches a recorded window/document event (see options.listeners).
+    fire(type, event) {
+      const matches = listeners.filter((l) => l.type === type);
+      matches.forEach((l) => { l.fn(event || {}); });
+      return matches.length;
+    },
   };
 }
