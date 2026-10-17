@@ -583,7 +583,10 @@
 
     <!-- 2. HISTORY TAB -->
     <section id="tab-history" class="tab-view">
-      <h2>Workout History</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h2 style="margin:0;">Workout History</h2>
+        <button class="btn btn-primary" onclick="goToTrainingCalendar()">📅 Calendar</button>
+      </div>
       <div id="historyList"></div>
     </section>
 
@@ -625,9 +628,29 @@
         <div id="myProfileBody"></div>
       </div>
 
-      <div class="card">
-        <div style="font-weight:700; margin-bottom:10px;">Muscle Group Distribution (Sets)</div>
-        <div id="muscleChart"></div>
+      <!-- P5-03: training calendar, consistency and muscle workload (month/all-time) -->
+      <div class="card" id="calendarCard" style="max-width:412px; margin-left:auto; margin-right:auto;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;">
+          <button class="btn" style="padding:6px 12px;" onclick="calPrevMonth()" aria-label="Previous month">‹</button>
+          <div style="font-weight:700; font-size:15px;" id="calendarTitle">Month</div>
+          <button class="btn" style="padding:6px 12px;" onclick="calNextMonth()" aria-label="Next month">›</button>
+        </div>
+        <div id="calendarGrid"></div>
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px;">
+          <div id="calendarConsistency" style="font-size:13px;"></div>
+          <button class="btn" style="padding:5px 10px; font-size:12px;" onclick="calThisMonth()">Today</button>
+        </div>
+        <div style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+            <div style="font-weight:700; font-size:14px;">Muscle workload (sets)</div>
+            <div style="display:flex; gap:6px;">
+              <button class="chip" id="calWorkloadMonth" style="min-height:32px; padding:5px 10px; font-size:12px;" onclick="setCalWorkloadRange('month')">This month</button>
+              <button class="chip" id="calWorkloadAll" style="min-height:32px; padding:5px 10px; font-size:12px;" onclick="setCalWorkloadRange('all')">All time</button>
+            </div>
+          </div>
+          <div style="font-size:11px; color:var(--text-sub); margin:4px 0 8px;">Primary muscle, warm-ups not counted</div>
+          <div id="calendarWorkload"></div>
+        </div>
       </div>
 
       <div class="card" id="profileRecordsCard">
@@ -646,6 +669,13 @@
           <select id="prevScopeSelect" class="set-input" style="width:170px;" onchange="setPrevScope(this.value)">
             <option value="any">Any workout</option>
             <option value="same">Same routine only</option>
+          </select>
+        </div>
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+          <span style="font-size:14px;">Week starts on</span>
+          <select id="weekStartSelect" class="set-input" style="width:170px;" onchange="setWeekStart(this.value)">
+            <option value="mon">Monday</option>
+            <option value="sun">Sunday</option>
           </select>
         </div>
         <div style="font-weight:700; font-size:14px; margin-bottom:8px;">Barbell plates</div>
@@ -907,6 +937,17 @@
         <button class="btn" onclick="closeExerciseProgress()">✕</button>
       </div>
       <div class="modal-body" id="exProgressBody" style="padding-top:10px;"></div>
+    </div>
+  </div>
+
+  <!-- CALENDAR DAY PICKER (P5-03): 2+ workouts on the same day -->
+  <div class="modal" id="calDayModal">
+    <div class="modal-content sheet" style="max-width:412px;">
+      <div class="modal-header">
+        <span id="calDayTitle">Workouts</span>
+        <button class="btn" onclick="closeCalDay()">✕</button>
+      </div>
+      <div class="modal-body" id="calDayBody" style="padding-top:10px;"></div>
     </div>
   </div>
 
@@ -4655,6 +4696,351 @@
       btn.disabled = true;
     }
 
+    /* P5-03 TRAINING CALENDAR, CONSISTENCY & MUSCLE WORKLOAD (personal part).
+       Everything here is derived from state.history on every render: no stored
+       derived data, no schema bump. The only saved preference is the week
+       start, read through getWeekStart() with a safe 'mon' default, so old
+       saved states and restored backups keep working untouched.
+       Day boundaries are LOCAL phone time - the same date the History feed
+       shows for a session. Reported as recorded sessions only: no recovery,
+       fatigue or readiness claim anywhere. */
+
+    /* Primary muscles fold into the six chart buckets (P2-06 pattern);
+       Full body stays uncharted, as before. */
+    const MUSCLE_BUCKETS = { Biceps: 'Arms', Triceps: 'Arms', Forearms: 'Arms', Quads: 'Legs', Hamstrings: 'Legs', Glutes: 'Legs', Calves: 'Legs' };
+
+    function getWeekStart() {
+      return (state && state.weekStart === 'sun') ? 'sun' : 'mon';
+    }
+
+    function getWeekStartDayNum() {
+      return getWeekStart() === 'sun' ? 0 : 1;
+    }
+
+    function setWeekStart(v) {
+      // Preference only; stored sessions are never modified.
+      state.weekStart = (v === 'sun') ? 'sun' : 'mon';
+      saveState();
+      renderProfileStats();
+    }
+
+    function pad2(n) { return String(n).padStart(2, '0'); }
+
+    /* Local-day key 'YYYY-MM-DD'; null when the timestamp is unusable. */
+    function dayKeyLocal(ms) {
+      const t = Number(ms);
+      if (!isFinite(t)) return null;
+      const d = new Date(t);
+      if (!isFinite(d.getTime())) return null;
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+    }
+
+    function startOfDayMs(ms) {
+      const d = new Date(Number(ms));
+      if (!isFinite(d.getTime())) return null;
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }
+
+    /* Local midnight starting the week containing ms (date math, so it is
+       correct across DST shifts). */
+    function startOfWeekMs(ms, weekStart) {
+      const ws = (weekStart === 0 || weekStart === 1) ? weekStart : getWeekStartDayNum();
+      const base = startOfDayMs(ms);
+      if (base === null) return null;
+      const d = new Date(base);
+      d.setDate(d.getDate() - ((d.getDay() - ws + 7) % 7));
+      return d.getTime();
+    }
+
+    /* day key -> that day's history entries, newest first. */
+    function historyByDay(history) {
+      const map = {};
+      (Array.isArray(history) ? history : []).forEach(w => {
+        if (!w || typeof w !== 'object') return;
+        const key = dayKeyLocal(w.date);
+        if (!key) return;
+        if (!map[key]) map[key] = [];
+        map[key].push(w);
+      });
+      Object.keys(map).forEach(key => {
+        map[key].sort((a, b) => (Number(b.date) || 0) - (Number(a.date) || 0));
+      });
+      return map;
+    }
+
+    /* Pure calendar model for one month: whole weeks of 7 (5 or 6 rows),
+       padded with neighbouring days. Out-of-month days are never counted. */
+    function buildCalendarModel(history, year, month, weekStart, nowMs) {
+      const ws = (weekStart === 0 || weekStart === 1) ? weekStart : getWeekStartDayNum();
+      const byDay = historyByDay(history);
+      const todayKey = dayKeyLocal(nowMs);
+      const first = new Date(year, month, 1);
+      first.setHours(0, 0, 0, 0);
+      const cursor = new Date(first.getTime());
+      cursor.setDate(cursor.getDate() - ((cursor.getDay() - ws + 7) % 7));
+      const cells = [];
+      for (let i = 0; i < 42; i++) {
+        const d = new Date(cursor.getTime());
+        d.setDate(cursor.getDate() + i);
+        const key = dayKeyLocal(d.getTime());
+        const inMonth = d.getFullYear() === year && d.getMonth() === month;
+        const items = (inMonth && key) ? (byDay[key] || []) : [];
+        cells.push({
+          key: key,
+          day: d.getDate(),
+          inMonth: inMonth,
+          count: items.length,
+          isToday: key !== null && key === todayKey,
+          ids: items.map(w => String(w.id == null ? '' : w.id))
+        });
+      }
+      let lastInMonth = 0;
+      cells.forEach((c, i) => { if (c.inMonth) lastInMonth = i; });
+      const rows = lastInMonth < 35 ? 5 : 6;
+      cells.length = rows * 7;
+      let monthCount = 0;
+      cells.forEach(c => { monthCount += c.count; });
+      return { year: year, month: month, weekStart: ws, rows: rows, cells: cells, monthCount: monthCount, todayKey: todayKey };
+    }
+
+    /* Weeks are local calendar weeks starting at the chosen day. The current
+       week is grace: while it is still unfinished it cannot break the run,
+       but any EARLIER week without a workout ends it. */
+    function computeConsistency(history, nowMs, weekStart) {
+      const ws = (weekStart === 0 || weekStart === 1) ? weekStart : getWeekStartDayNum();
+      const now = Number(nowMs);
+      const nowDate = new Date(isFinite(now) ? now : Date.now());
+      const nowMsSafe = isFinite(now) ? now : Date.now();
+      const thisWeekStart = startOfWeekMs(nowMsSafe, ws);
+      const monthKey = nowDate.getFullYear() + '-' + pad2(nowDate.getMonth() + 1);
+
+      let thisWeek = 0;
+      let thisMonth = 0;
+      const weekHas = {};
+      (Array.isArray(history) ? history : []).forEach(w => {
+        if (!w || typeof w !== 'object') return;
+        const key = dayKeyLocal(w.date);
+        if (!key) return;
+        const week = startOfWeekMs(new Date(Number(w.date)).getTime(), ws);
+        if (week === null) return;
+        weekHas[String(week)] = true;
+        if (week === thisWeekStart) thisWeek++;
+        if (key.slice(0, 7) === monthKey) thisMonth++;
+      });
+
+      let streakWeeks = 0;
+      if (thisWeekStart !== null) {
+        const cursor = new Date(thisWeekStart);
+        if (!weekHas[String(thisWeekStart)]) cursor.setDate(cursor.getDate() - 7);
+        while (weekHas[String(cursor.getTime())]) {
+          streakWeeks++;
+          cursor.setDate(cursor.getDate() - 7);
+        }
+      }
+      return { thisWeek: thisWeek, thisMonth: thisMonth, streakWeeks: streakWeeks, weekStart: ws };
+    }
+
+    /* Sets per bucket from Primary muscle only, counting only P5-01 counting
+       sets (warm-ups excluded). opts {year, month} limits the range to one
+       calendar month; omit for all time. */
+    function muscleWorkloadCounts(history, exercises, opts) {
+      const counts = { Chest: 0, Back: 0, Legs: 0, Shoulders: 0, Arms: 0, Core: 0 };
+      const list = Array.isArray(history) ? history : [];
+      const exList = Array.isArray(exercises) ? exercises : [];
+      const monthScoped = !!(opts && typeof opts.year === 'number' && typeof opts.month === 'number');
+      list.forEach(w => {
+        if (!w || typeof w !== 'object') return;
+        if (monthScoped) {
+          const d = new Date(Number(w.date));
+          if (!isFinite(d.getTime())) return;
+          if (d.getFullYear() !== opts.year || d.getMonth() !== opts.month) return;
+        }
+        (Array.isArray(w.exercises) ? w.exercises : []).forEach(item => {
+          if (!item) return;
+          const ex = exList.find(e => e && e.id === item.exId);
+          if (!ex) return;
+          const primary = exPrimary(ex);
+          const bucket = MUSCLE_BUCKETS[primary] || primary;
+          if (counts[bucket] === undefined) return; // Full body / unmapped
+          counts[bucket] += metricCountingSets(item.sets).length;
+        });
+      });
+      return counts;
+    }
+
+    function muscleWorkloadForMonth(history, exercises, year, month) {
+      return muscleWorkloadCounts(history, exercises, { year: Number(year), month: Number(month) });
+    }
+
+    function muscleWorkloadAllTime(history, exercises) {
+      return muscleWorkloadCounts(history, exercises, null);
+    }
+
+    /* ---- Calendar view (Profile card; session-only month cursor) ---- */
+
+    let calYear = null;
+    let calMonth = null;
+    let calWorkloadRange = 'month'; // 'month' follows the calendar cursor
+
+    function ensureCalCursor() {
+      const now = new Date();
+      if (typeof calYear !== 'number' || !isFinite(calYear)) calYear = now.getFullYear();
+      if (typeof calMonth !== 'number' || !isFinite(calMonth) || calMonth < 0 || calMonth > 11) calMonth = now.getMonth();
+    }
+
+    function calendarMonthLabel(year, month) {
+      return new Date(year, month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    }
+
+    function showCalendarMonth(year, month) {
+      calYear = Number(year);
+      calMonth = Number(month);
+      ensureCalCursor();
+      renderTrainingCalendar();
+    }
+
+    function calPrevMonth() {
+      ensureCalCursor();
+      calMonth--;
+      if (calMonth < 0) { calMonth = 11; calYear--; }
+      renderTrainingCalendar();
+    }
+
+    function calNextMonth() {
+      ensureCalCursor();
+      calMonth++;
+      if (calMonth > 11) { calMonth = 0; calYear++; }
+      renderTrainingCalendar();
+    }
+
+    function calThisMonth() {
+      const now = new Date();
+      calYear = now.getFullYear();
+      calMonth = now.getMonth();
+      renderTrainingCalendar();
+    }
+
+    function setCalWorkloadRange(v) {
+      calWorkloadRange = (v === 'all') ? 'all' : 'month';
+      renderTrainingCalendar();
+    }
+
+    /* History tab entry point: same profile route as the bottom nav. */
+    function goToTrainingCalendar() {
+      const navs = document.querySelectorAll('.nav-item');
+      switchTab('profile', (navs && navs[3]) ? navs[3] : document.getElementById('tab-profile'));
+      try {
+        const card = document.getElementById('calendarCard');
+        if (card && card.scrollIntoView) card.scrollIntoView({ block: 'start' });
+      } catch (e) {}
+    }
+
+    function renderTrainingCalendar() {
+      ensureCalCursor();
+      const titleEl = document.getElementById('calendarTitle');
+      const gridEl = document.getElementById('calendarGrid');
+      const consEl = document.getElementById('calendarConsistency');
+      const workEl = document.getElementById('calendarWorkload');
+      const nowMs = Date.now();
+      if (titleEl) titleEl.innerText = calendarMonthLabel(calYear, calMonth);
+
+      const model = buildCalendarModel(state.history, calYear, calMonth, getWeekStartDayNum(), nowMs);
+      const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      let head = '';
+      for (let i = 0; i < 7; i++) {
+        head += '<div style="text-align:center; font-size:10px; color:var(--text-sub); font-weight:700; padding-bottom:4px;">'
+          + names[(model.weekStart + i) % 7] + '</div>';
+      }
+      const hasAny = Array.isArray(state.history) && state.history.length > 0;
+      let cellsHtml = '';
+      if (!hasAny) {
+        cellsHtml = '<div style="grid-column:1 / -1; text-align:center; color:var(--text-sub); font-size:13px; padding:14px 0;">No workouts yet</div>';
+      } else {
+        cellsHtml = model.cells.map(c => {
+          const filled = c.count > 0;
+          let cellStyle = 'min-height:40px; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:8px; font-size:12px; line-height:1.1;';
+          if (filled) cellStyle += ' background:var(--primary); color:#fff; font-weight:700; cursor:pointer;';
+          else if (c.inMonth) cellStyle += ' background:var(--bg-elevated); color:var(--text);';
+          else cellStyle += ' background:transparent; color:var(--text-sub); opacity:0.45;';
+          if (c.isToday) cellStyle += ' outline:2px solid var(--primary); outline-offset:-2px;' + (filled ? '' : ' font-weight:800; color:var(--primary);');
+          const click = filled ? ' onclick="openCalendarDay(\'' + esc(c.key) + '\')" role="button" tabindex="0"' : '';
+          const badge = (filled && c.count > 1) ? '<div style="font-size:9px; font-weight:700; opacity:0.9;">' + c.count + '×</div>' : '';
+          return '<div class="cal-day' + (filled ? ' cal-day-filled' : '') + (c.isToday ? ' cal-day-today' : '') + '" data-key="' + esc(c.key || '') + '"' + click + ' style="' + cellStyle + '">'
+            + '<span>' + c.day + '</span>' + badge + '</div>';
+        }).join('');
+      }
+      if (gridEl) {
+        gridEl.innerHTML = '<div style="max-width:412px; margin:0 auto; overflow:hidden;">'
+          + '<div style="display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px;">'
+          + head + cellsHtml
+          + '</div></div>';
+      }
+
+      const cons = computeConsistency(state.history, nowMs, model.weekStart);
+      if (consEl) {
+        consEl.innerHTML = 'This week ' + cons.thisWeek + ' · This month ' + cons.thisMonth
+          + ' · Streak ' + cons.streakWeeks + (cons.streakWeeks === 1 ? ' week' : ' weeks');
+      }
+
+      const monthScoped = (calWorkloadRange === 'month');
+      const counts = monthScoped
+        ? muscleWorkloadForMonth(state.history, state.exercises, calYear, calMonth)
+        : muscleWorkloadAllTime(state.history, state.exercises);
+      const maxSets = Math.max(1, ...Object.values(counts));
+      const totalSets = Object.values(counts).reduce((a, b) => a + b, 0);
+      if (workEl) {
+        workEl.innerHTML = Object.keys(counts).map(muscle => {
+          const count = counts[muscle];
+          const pct = Math.round((count / maxSets) * 100);
+          return '<div style="margin-bottom:8px;">'
+            + '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px;">'
+            + '<span>' + esc(muscle) + '</span><span style="color:var(--text-sub);">' + count + ' sets</span></div>'
+            + '<div style="height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden;">'
+            + '<div style="width:' + pct + '%; height:100%; background:var(--primary);"></div></div></div>';
+        }).join('') + (totalSets === 0 ? '<div style="font-size:12px; color:var(--text-sub);">No sets in this range.</div>' : '');
+      }
+      const mBtn = document.getElementById('calWorkloadMonth');
+      const aBtn = document.getElementById('calWorkloadAll');
+      if (mBtn) mBtn.className = 'chip' + (monthScoped ? ' on' : '');
+      if (aBtn) aBtn.className = 'chip' + (monthScoped ? '' : ' on');
+    }
+
+    /* Tap a trained day: one workout opens its detail sheet, two or more open
+       a small picker first. */
+    function openCalendarDay(key) {
+      const items = historyByDay(state.history)[String(key)] || [];
+      if (!items.length) return false;
+      if (items.length === 1) return openHistDetail(items[0].id);
+      const first = new Date(Number(items[0].date));
+      const titleEl = document.getElementById('calDayTitle');
+      if (titleEl) {
+        titleEl.innerText = isFinite(first.getTime())
+          ? first.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+          : 'Workouts';
+      }
+      const body = document.getElementById('calDayBody');
+      if (body) {
+        body.innerHTML = items.map(w => {
+          const t = new Date(Number(w.date));
+          const timeStr = isFinite(t.getTime()) ? t.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—';
+          return '<button class="btn btn-block" style="margin-bottom:8px; text-align:left;" data-wid="' + esc(String(w.id)) + '" onclick="openCalDayPick(this.getAttribute(\'data-wid\'))">'
+            + '<b>' + esc(w.title) + '</b> · ' + esc(timeStr) + ' · ' + (Number(w.totalSets) || 0) + ' sets</button>';
+        }).join('');
+      }
+      document.getElementById('calDayModal').classList.add('open');
+      return true;
+    }
+
+    function openCalDayPick(id) {
+      closeCalDay();
+      return openHistDetail(id);
+    }
+
+    function closeCalDay() {
+      closeModal('calDayModal');
+    }
+
     /* PROFILE & ANALYTICS */
     function renderProfileStats() {
       const totalWorkouts = state.history.length;
@@ -4678,38 +5064,13 @@
       if (plEl) plEl.value = ps.platesLb.join(', ');
       renderMyProfile();
       renderProfileRecords();
+      const wsSel = document.getElementById('weekStartSelect');
+      if (wsSel) wsSel.value = getWeekStart();
 
-      /* P2-06: the chart keeps its six buckets; new primaries fold into the
-         legacy buckets (Biceps/Triceps/Forearms -> Arms, Quads/Hamstrings/
-         Glutes/Calves -> Legs). Full body is not charted. */
-      const counts = { Chest: 0, Back: 0, Legs: 0, Shoulders: 0, Arms: 0, Core: 0 };
-      const MUSCLE_BUCKETS = { Biceps: 'Arms', Triceps: 'Arms', Forearms: 'Arms', Quads: 'Legs', Hamstrings: 'Legs', Glutes: 'Legs', Calves: 'Legs' };
-      state.history.forEach(w => {
-        w.exercises.forEach(item => {
-          const ex = state.exercises.find(e => e.id === item.exId);
-          if (!ex) return;
-          const bucket = MUSCLE_BUCKETS[exPrimary(ex)] || exPrimary(ex);
-          if (counts[bucket] !== undefined) {
-            counts[bucket] += item.sets.length;
-          }
-        });
-      });
-
-      const maxSets = Math.max(1, ...Object.values(counts));
-      document.getElementById('muscleChart').innerHTML = Object.entries(counts).map(([muscle, count]) => {
-        const pct = Math.round((count / maxSets) * 100);
-        return `
-          <div style="margin-bottom:8px;">
-            <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:3px;">
-              <span>${muscle}</span>
-              <span style="color:var(--text-sub);">${count} sets</span>
-            </div>
-            <div style="height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden;">
-              <div style="width:${pct}%; height:100%; background:var(--primary);"></div>
-            </div>
-          </div>
-        `;
-      }).join('');
+      /* P5-03: one card holds the calendar, the consistency line and the
+         muscle workload. Both workload ranges recompute from history with
+         P5-01 counting sets (warm-ups excluded) and Primary muscle only. */
+      renderTrainingCalendar();
     }
 
     function saveRestPreference() {

@@ -206,6 +206,13 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   setProgressMetric, setProgressRange, renderProfileRecords,
   get progressExId(){ return progressExId; }, get progressOrigin(){ return progressOrigin; },
   get progressMetric(){ return progressMetric; }, get progressRange(){ return progressRange; },
+  getWeekStart, getWeekStartDayNum, setWeekStart, dayKeyLocal, startOfDayMs, startOfWeekMs,
+  historyByDay, buildCalendarModel, computeConsistency, MUSCLE_BUCKETS,
+  muscleWorkloadCounts, muscleWorkloadForMonth, muscleWorkloadAllTime,
+  renderTrainingCalendar, showCalendarMonth, calPrevMonth, calNextMonth, calThisMonth,
+  setCalWorkloadRange, openCalendarDay, openCalDayPick, closeCalDay, goToTrainingCalendar,
+  get calYear(){ return calYear; }, get calMonth(){ return calMonth; },
+  get calWorkloadRange(){ return calWorkloadRange; },
   get obWelcomeIdx(){ return obWelcomeIdx; }, get obIsFirstRun(){ return obIsFirstRun; },
 };`;
 
