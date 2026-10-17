@@ -17,8 +17,9 @@
 
 - One `index.html` (markup, CSS, one `<script>`), `sw.js`, `manifest.webmanifest`,
   `icons/`, `assets/brand/`. No build step, no package manager, no framework.
-- Storage is `localStorage` (state + draft) plus **IndexedDB as a mirror** of the live
-  draft only. No server, no cloud sync, no accounts.
+- Storage is `localStorage` (state + draft) plus **IndexedDB as a write-through mirror**
+  of the live draft **and of the main state** (history, routines, profile, plans). No
+  server, no cloud sync, no accounts.
 - A native rewrite or a backend is **not** justified by today's needs; see triggers below.
 
 ## Domain contracts (stable)
@@ -32,17 +33,39 @@
 
 ## Storage keys (unchanged, never renamed)
 
-- `hevy_clone_state` — saved state (`schemaVersion` 2).
+- `hevy_clone_state` — saved state (`schemaVersion` 2). Since this job the state also
+  carries a `savedAt` stamp (metadata only; nothing reads it as product data).
 - `hevy_clone_active_session` — live draft, JSON with `savedAt` stamp.
 - `hevy_clone_state_backup_v1` — untouched pre-migration copy (kept forever).
 - `hevy_clone_state_before_restore` — undo snapshot of the last restore.
-- **IndexedDB `plz_fitzone_draft` → store `drafts` → key `active_session`** — the same
-  draft object, written on every save with `durability: 'strict'` when the engine
-  supports it. It exists because a tick made seconds before Android killed the app
-  could be lost with the localStorage write still in flight (verified on device).
-- Resume rule: of the two copies, the one with the newer `savedAt` wins; finish and
-  discard clear both; `pagehide` and `visibilitychange` (hidden) flush both.
+- **IndexedDB `plz_fitzone_draft` → store `drafts`** — two keys, each written on every
+  save with `durability: 'strict'` when the engine supports it:
+  - `active_session` — the same draft object;
+  - `main_state` — `{ savedAt, json }` where `json` is the **exact string** localStorage
+    holds, so adopting it is lossless.
+  The mirror exists because a tick (and, worse, a finished workout's history entry) made
+  seconds before Android killed the app could be lost with the localStorage write still
+  in flight (both verified on the emulator 2026-10-17).
+- **Start-up rule (main state):** the mirror is read *before* `init()` renders or saves
+  (capped at 500 ms; without IndexedDB start-up stays synchronous). A mirror that is
+  newer than localStorage, or any missing/empty/corrupt localStorage copy, is adopted and
+  written back to localStorage; a fresh default state can therefore never overwrite a
+  newer mirror. Restore/import and "Undo last restore" write both copies.
+- **Resume rule (draft):** of the two copies, the one with the newer `savedAt` wins;
+  finish and discard clear both; `pagehide` and `visibilitychange` (hidden) flush the
+  draft *and* the state into both stores.
 - `navigator.storage.persist()` is requested once (best effort, silent on refusal).
+
+## Durability window (explicit trade-off)
+
+- The main-state mirror read is capped at **500 ms**: a hung or blocked database must
+  never keep the app closed. If the cap wins, the app starts on localStorage and the
+  late mirror answer is ignored — on a healthy device the read takes ~10–50 ms, so this
+  is a dead-database path, not a normal one. Mirror writes are also suppressed until
+  that read settles (and until `init()` has run), so nothing this build writes can
+  overwrite a newer mirror while the app is still starting.
+- `saveState()` is now called from `pagehide`/hidden-`visibilitychange` as well, so the
+  window between "the value changed" and "a crash" is one event, not one write.
 
 ## Migration and rollback
 
@@ -59,8 +82,10 @@
   mascot `./assets/brand/plz-fitzone-mascot.jpg`; cache-first for static assets.
 - Page requests are **network-first with a 3 s `AbortController` timeout**, then the
   cached page — a weak gym signal can no longer hang the app on a white screen.
-- A fixed, non-blocking "Offline — your workouts are saved on this phone" pill appears
-  only while `navigator.onLine === false`.
+- A non-blocking "Offline — your workouts are saved on this phone" strip sits in normal
+  flow **under the header** (≤ 36 px high, `pointer-events:none`) and shows only while
+  `navigator.onLine === false`; because it is not an overlay it can never cover the
+  Continue or bottom-nav buttons.
 - Training never needs the network: logging, ticking and finishing are local.
 
 ## Update strategy
@@ -68,7 +93,8 @@
 - Installed app resumes the old page: on load and on `visibilitychange` (visible) the
   page HEADs `./index.html` and compares ETag/Last-Modified; a change shows the
   "New version ready — tap to update" bar. Failures are silent, so it is inert offline.
-- Reloading is safe at any point because the live draft is saved (and now mirrored).
+- Reloading is safe at any point because the live draft and the main state are saved
+  (and now mirrored).
 
 ## Triggers that would reopen this decision
 
