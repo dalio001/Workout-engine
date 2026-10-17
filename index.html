@@ -565,6 +565,8 @@
     <section id="tab-workout" class="tab-view active">
       <h2>Quick Start</h2>
       <button class="btn btn-primary btn-block" onclick="startEmptyWorkout()">➕ Start Empty Workout</button>
+      <!-- P2-10: today's plan, straight from the training calendar -->
+      <div id="todayPlanCard" style="margin-top:12px;"></div>
 
       <div class="card" id="gettingStartedCard" style="display:none;">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px;">
@@ -574,8 +576,6 @@
         <div style="font-size:14px; line-height:1.7; color:var(--text-sub);">1. Tap a routine below, then Start Routine — your previous weights show under each set.<br>2. Tap Finish to save the workout on this phone.<br>3. Back up anytime from Profile → Backup JSON.</div>
       </div>
 
-      <!-- P2-10: today's plan, straight from the training calendar -->
-      <div id="todayPlanCard" style="margin-top:16px;"></div>
 
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:22px;">
         <h3 style="margin:0;">My Routines (Unlimited)</h3>
@@ -5092,7 +5092,9 @@
           }
           const badge = (filled && c.count > 1) ? '<div style="font-size:9px; font-weight:700; opacity:0.9;">' + c.count + '×</div>' : '';
           const doneBadge = (status === 'done') ? '<div style="font-size:9px; font-weight:800; color:#a3e635;">✓</div>' : '';
-          const planDot = (!filled && status !== 'none') ? '<div style="font-size:9px; font-weight:800; color:' + (status === 'missed' ? 'var(--text-sub)' : '#a3e635') + ';">•</div>' : '';
+          /* Planned/missed day: the routine's first word ("Push"), or "Rest". */
+          const planShort = plan ? (plan.kind === 'rest' ? 'Rest' : String(planLabel(plan, state.routines)).split(/[\s(]/)[0].slice(0, 6)) : '';
+          const planDot = (!filled && status !== 'none') ? '<div style="font-size:9px; font-weight:700; max-width:100%; overflow:hidden; white-space:nowrap; color:' + (status === 'missed' ? 'var(--text-sub)' : '#a3e635') + ';">' + esc(status === 'missed' ? 'missed' : planShort) + '</div>' : '';
           return '<div class="cal-day' + (filled ? ' cal-day-filled' : '') + (c.isToday ? ' cal-day-today' : '') + (status === 'missed' ? ' cal-day-missed' : '') + '" data-key="' + esc(c.key || '') + '"' + click + ' style="' + cellStyle + '">'
             + '<span>' + c.day + '</span>' + badge + doneBadge + planDot + '</div>';
         }).join('');
@@ -5253,7 +5255,6 @@
             + '<button class="btn" style="min-height:44px;" data-key="' + esc(k) + '" onclick="movePlanFromInput(this.getAttribute(\'data-key\'))">Move</button>'
             + '</div>';
         }
-        html += '<div style="font-size:11px; color:var(--text-sub); margin-bottom:8px;">A plan is not a workout: it never fills a day by itself.</div>';
       } else if (planable) {
         html += '<div style="font-size:14px; font-weight:700; margin-bottom:8px;">Plan this day</div>' + planEditorHtml(k, null);
       } else {
@@ -5325,9 +5326,9 @@
     function savePlanFromSelect(key) {
       const sel = document.getElementById('planRoutineSelect');
       const v = sel ? String(sel.value) : '';
-      if (v === 'rest') return saveRestPlanForDay(key);
-      if (v) return savePlanForDay(key, v);
-      return false;
+      const ok = v === 'rest' ? saveRestPlanForDay(key) : (v ? savePlanForDay(key, v) : false);
+      if (ok) closeCalDay(); /* saved: back to the calendar, the day shows the plan */
+      return ok;
     }
 
     function deletePlan(key) {
@@ -5401,7 +5402,7 @@
       el.innerHTML = cardOpen
         + '<div style="font-size:15px; font-weight:700;">📌 Today: ' + esc(label) + '</div>'
         + (exists
-          ? '<button class="btn btn-primary btn-block" style="margin-top:8px; min-height:44px;" onclick="startTodayPlanWorkout()">▶ Start ' + esc(label) + '</button>'
+          ? '<button class="btn btn-primary btn-block" style="margin-top:8px; min-height:44px;" onclick="startTodayPlanWorkout()">▶ Start</button>'
           : '<div style="font-size:12px; color:var(--text-sub); margin-top:4px;">That routine no longer exists. Pick another routine, or delete the plan in the calendar.</div>')
         + '</div>';
     }
