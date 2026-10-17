@@ -2,6 +2,11 @@
 
 Newest first. Product direction: [MASTER_PLAN.md](MASTER_PLAN.md). Governance: [../AGENTS.md](../AGENTS.md).
 
+## 2026-10-17 — Timed sets for duration exercises (P2-12 personal part), awaiting owner phone check
+
+- Built by OpenCode (DeepSeek V4.1 Flash, free) from `docs/pillars/plans/P2-12/PLAN.md`; the run hit the free-model rate limit after the code and tests, so the supervisor added select-on-focus for the time box, these docs and the commit. Duration exercises (Plank, Side Plank, Mountain Climber, Farmer Carry, Battle Rope) log `durationSec` instead of KG/REPS: Start/Stop stopwatch on the row (one running at a time, survives reload/kill via the draft mirror), typed time `m:ss` or seconds without rebuilding, optional routine target with guarded vibrate, previous shows the last time, records show the longest hold (no e1RM/volume, no invented kg), optional KG for weighted carries. Supersets not done.
+- Checks: new `tests/p2_timed_sets.test.mjs`; `node --test "tests/*.test.mjs"` 218/218 pass; emulator: Start, kill Chrome mid-hold, reopen still counting, Stop -> 1:58 ticked + rest timer, typed 1:05 -> 65 s, finished workout saved `durationSec`, next workout shows previous 1:58.
+
 ## 2026-10-17 — Correction after the emulator run: main state mirrored to IndexedDB too, start-up adopts the newer copy, offline strip moved under the header (P0-01), awaiting owner phone check
 
 - Same branch `codex/p0-01-offline`, no new plan. The second emulator test (Pixel 8, airplane mode) confirmed the draft mirror works (tick → force-kill 1 s later → tick restored 3/3 runs) and exposed the **same flush gap in the main state**: seed 12 workouts, start a routine, tick, kill 1–2 s later → on reopen `hevy_clone_state` had history 0 and onboarding showed again, so a workout finished seconds before a kill could vanish from history.

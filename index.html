@@ -270,6 +270,22 @@
     }
     .set-input:focus { border-color: var(--primary); }
     .set-input.invalid { border-color: var(--danger); }
+    /* P2-12: a running hold that has reached its target time. */
+    .set-input.time-target { border-color: var(--success); color: var(--success); }
+    .set-timer-btn {
+      width: 100%;
+      min-height: 44px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      padding: 2px 0;
+      white-space: nowrap;
+    }
+    .set-timer-btn.running { background: var(--danger); border-color: var(--danger); color: #ffffff; }
     .set-error {
       grid-column: 1 / -1;
       font-size: 12px;
@@ -1093,6 +1109,84 @@
       return out;
     }
 
+    /* P2-12 timed sets. A duration set carries `durationSec` (whole seconds)
+       instead of reps. Nothing here rewrites stored data: an old set without
+       durationSec simply produces no duration metric and shows a dash. */
+    const SET_MAX_DURATION_SEC = 86400;
+
+    function isDurationEx(ex) {
+      return !!(ex && ex.type === 'duration');
+    }
+
+    /* Optional load box: only for duration exercises that are not bodyweight
+       (plank, side plank, mountain climber) and not Other (battle rope).
+       Farmer Carry (dumbbell) keeps an optional kg. */
+    function durationSetAllowsWeight(ex) {
+      if (!isDurationEx(ex)) return false;
+      const eq = String((ex && ex.equipment) || '');
+      return eq !== 'Bodyweight' && eq !== 'Other';
+    }
+
+    /* "1:05" -> 65, "65" -> 65, "1:" -> 60, "" -> null. Anything else null. */
+    function parseDurationInput(val) {
+      if (val === '' || val === null || val === undefined) return null;
+      const t = String(val).trim();
+      if (!t) return null;
+      let m = t.match(/^(\d+):([0-5]?\d)?$/);
+      if (m) {
+        const min = parseInt(m[1], 10);
+        const sec = (m[2] === undefined || m[2] === '') ? 0 : parseInt(m[2], 10);
+        const total = min * 60 + sec;
+        return (isFinite(total) && total >= 1) ? total : null;
+      }
+      m = t.match(/^(\d+)$/);
+      if (m) {
+        const n = parseInt(m[1], 10);
+        return (isFinite(n) && n >= 1) ? n : null;
+      }
+      return null;
+    }
+
+    /* 65 -> "1:05", 3665 -> "1:01:05". */
+    function formatDurationClock(sec) {
+      const n = Math.round(Number(sec));
+      if (!isFinite(n) || n < 0) return '—';
+      const h = Math.floor(n / 3600);
+      const m = Math.floor((n % 3600) / 60);
+      const s = String(n % 60).padStart(2, '0');
+      if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + s;
+      return m + ':' + s;
+    }
+
+    function getDurationError(sec) {
+      if (sec === '' || sec === null || sec === undefined) return 'Enter a time (e.g. 1:05)';
+      const n = Number(sec);
+      if (!isFinite(n)) return 'Enter a number';
+      if (Math.floor(n) !== n) return 'Whole seconds only';
+      if (n < 1) return 'At least 1 second';
+      if (n > SET_MAX_DURATION_SEC) return 'Max 24:00:00';
+      return '';
+    }
+
+    /* P2-12: duration mirror of metricCountingSets (warm-ups excluded, a hold
+       needs at least 1 second). Kept separate so metricCountingSets stays
+       untouched for reps/load metrics. */
+    function durationCountingSets(sets) {
+      const out = [];
+      if (!Array.isArray(sets)) return out;
+      for (let i = 0; i < sets.length; i++) {
+        const s = sets[i];
+        if (!s || typeof s !== 'object') continue;
+        const t = normSetType(s && s.type);
+        if (t === 'W') continue;
+        const d = Number(s.durationSec);
+        if (!isFinite(d) || d < 1) continue;
+        const w = Number(s.weight);
+        out.push({ index: i, type: t, durationSec: Math.round(d), weight: isFinite(w) ? w : 0 });
+      }
+      return out;
+    }
+
     function isLoadSet(s) {
       if (!s || typeof s !== 'object') return false;
       const t = normSetType(s && s.type);
@@ -1126,16 +1220,40 @@
         bestSetVolume: null,
         bestSessionVolume: null,
         mostRepsInSet: null,
-        repRecords: {} // key = reps (1..12), value = { valueKg, reps, dateMs, histId, setIdx }
+        repRecords: {}, // key = reps (1..12), value = { valueKg, reps, dateMs, histId, setIdx }
+        longestHold: null // P2-12: { durationSec, weightKg|null, dateMs, histId, setIdx }
       };
       const ex = (typeof state !== 'undefined' && state.exercises) ? state.exercises.find(e => e.id === exId) : null;
       const loadEx = usesLoadMetrics(ex);
+      const durEx = isDurationEx(ex);
       // Iterate oldest -> newest; first best wins (earliest date keeps).
       const history = (typeof state !== 'undefined' && state.history) ? (state.history.slice().sort((a, b) => (Number(a.date) || 0) - (Number(b.date) || 0))) : [];
       for (let hi = 0; hi < history.length; hi++) {
         const w = history[hi];
         const item = (w.exercises || []).find(it => it && it.exId === exId);
         if (!item || !Array.isArray(item.sets)) continue;
+        /* P2-12: a duration exercise never produces reps/1RM/volume records,
+           only a longest hold (+ heaviest load when a real kg was carried).
+           A legacy reps value on a duration exercise keeps the old records. */
+        if (durEx) {
+          const holds = durationCountingSets(item.sets);
+          if (holds.length > 0) {
+            for (let sIdx = 0; sIdx < holds.length; sIdx++) {
+              const hs = holds[sIdx];
+              if (!records.longestHold || hs.durationSec > records.longestHold.durationSec) {
+                records.longestHold = {
+                  durationSec: hs.durationSec,
+                  weightKg: (hs.weight > 0) ? hs.weight : null,
+                  dateMs: w.date, histId: w.id, setIdx: hs.index
+                };
+              }
+              if (hs.weight > 0 && (!records.heaviestWeight || hs.weight > records.heaviestWeight.valueKg)) {
+                records.heaviestWeight = { valueKg: hs.weight, durationSec: hs.durationSec, dateMs: w.date, histId: w.id, setIdx: hs.index };
+              }
+            }
+            continue;
+          }
+        }
         const countingSets = metricCountingSets(item.sets);
         // Most reps in one set (any counting set)
         for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
@@ -1220,15 +1338,60 @@
       return records;
     }
 
+    /* P2-12: one duration session (longest hold + total time) drawn from the
+       same workout item the reps path would use. Returns null when the item has
+       no stored hold, so a legacy reps row keeps the reps path. */
+    function buildDurationSession(w, exId, prevSessions) {
+      const item = (w && w.exercises || []).find(it => it && it.exId === exId);
+      if (!item || !Array.isArray(item.sets)) return null;
+      const holds = durationCountingSets(item.sets);
+      if (holds.length === 0) return null;
+      let longest = null, totalTime = 0;
+      const durSets = holds.map(hs => {
+        totalTime += hs.durationSec;
+        if (longest === null || hs.durationSec > longest) longest = hs.durationSec;
+        return { index: hs.index, type: hs.type, weightKg: hs.weight, durationSec: hs.durationSec, counts: true, isPR: false };
+      });
+      let prevBestHold = 0, prevHadHold = false;
+      (prevSessions || []).forEach(pw => {
+        const pItem = (pw && pw.exercises || []).find(it => it && it.exId === exId);
+        if (!pItem || !Array.isArray(pItem.sets)) return;
+        const pHolds = durationCountingSets(pItem.sets);
+        if (pHolds.length === 0) return;
+        prevHadHold = true;
+        pHolds.forEach(hs => { if (hs.durationSec > prevBestHold) prevBestHold = hs.durationSec; });
+      });
+      let runHold = prevBestHold;
+      const session = {
+        histId: w.id, dateMs: w.date, sets: durSets, isPR: false,
+        longestHold: longest, totalTime: totalTime,
+        points: { e1rm: null, heaviest: null, volume: 0, bestReps: null, longestHold: longest, totalTime: totalTime }
+      };
+      session.sets = session.sets.map(st => {
+        let isPR = false;
+        if (st.durationSec > runHold) { if (prevHadHold) isPR = true; runHold = st.durationSec; }
+        return { index: st.index, type: st.type, weightKg: st.weightKg, durationSec: st.durationSec, counts: st.counts, isPR: isPR };
+      });
+      return session;
+    }
+
     function exerciseSessions(exId) {
       const out = [];
       const history = (typeof state !== 'undefined' && state.history) ? state.history.slice() : [];
       // Newest first (as shown in UI); dictionary uses oldest-first for tie rules.
       const sortedOldestFirst = history.slice().sort((a, b) => (Number(a.date) || 0) - (Number(b.date) || 0));
+      const sessExInfo = (state.exercises || []).find(e => e.id === exId);
+      const durEx = isDurationEx(sessExInfo);
       for (let i = 0; i < sortedOldestFirst.length; i++) {
         const w = sortedOldestFirst[i];
         const item = (w.exercises || []).find(it => it && it.exId === exId);
         if (!item || !Array.isArray(item.sets)) continue;
+        /* P2-12: duration sessions carry a longest hold and a total time and
+           never invent reps/volume. Old reps sessions are untouched below. */
+        if (durEx) {
+          const durSession = buildDurationSession(w, exId, sortedOldestFirst.slice(0, i));
+          if (durSession) { out.push(durSession); continue; }
+        }
         const countingSets = metricCountingSets(item.sets);
         const points = { e1rm: null, heaviest: null, volume: 0, bestReps: null };
         for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
@@ -1240,7 +1403,7 @@
           if (points.heaviest === null || cs.weight > points.heaviest) points.heaviest = cs.weight;
           if (points.bestReps === null || cs.reps > points.bestReps) points.bestReps = cs.reps;
         }
-        const session = { histId: w.id, dateMs: w.date, sets: countingSets.map(cs => ({ index: cs.index, type: cs.type, weightKg: cs.weight, reps: cs.reps, counts: true })), points: points, isPR: false };
+        const session = { histId: w.id, dateMs: w.date, sets: countingSets.map(cs => ({ index: cs.index, type: cs.type, weightKg: cs.weight, reps: cs.reps, counts: true })), points: points, isPR: false, longestHold: null, totalTime: 0 };
         // Determine PR sets: a set is PR if it beats the running best of any record kind at that session time.
         // Simplified: compare against all previous sessions' best values (not exact tie-policy here).
         const prevSessions = sortedOldestFirst.slice(0, i); // older only
@@ -1302,6 +1465,8 @@
         else if (metric === 'heaviest') y = p.points.heaviest;
         else if (metric === 'volume') y = p.points.volume;
         else if (metric === 'bestReps') y = p.points.bestReps;
+        else if (metric === 'longestHold') y = p.points.longestHold;
+        else if (metric === 'totalTime') y = p.points.totalTime;
         return { x: p.dateMs, y: y, histId: p.histId, label: new Date(p.dateMs).toLocaleDateString() };
       }).filter(pt => pt.y !== null && pt.y !== undefined);
     }
@@ -1664,6 +1829,7 @@
     let activeWorkout = null;
     let workoutInterval = null;
     let restInterval = null;
+    let setClockInterval = null; // P2-12: 1 s painter for running set stopwatches
     let restRemaining = 0;
     let restDeadline = null;
     /* P2-02 set validation (personal part): canonical kg 0..1000, reps whole 1..1000. */
@@ -2108,6 +2274,9 @@
       clearInterval(workoutInterval);
       workoutInterval = setInterval(updateElapsedTimer, 1000);
       updateElapsedTimer();
+      // P2-12: a draft restored with a running clock keeps counting from its real start.
+      paintRunningSetClocks();
+      startSetClockTicker();
       if (restDeadline) {
         document.getElementById('restTimerBar').classList.add('active');
         updateRestDisplay();
@@ -2167,6 +2336,7 @@
       deletedSetTimer = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
+      stopSetClockTicker(); // P2-12
       const bar = document.getElementById('restTimerBar');
       if (bar) bar.classList.remove('active');
       document.getElementById('activeWorkoutDrawer').classList.remove('open');
@@ -2307,12 +2477,19 @@
       }
       let rest = state.defaultRest || 90;
       if (typeof src.restSec === 'number' && isFinite(src.restSec) && src.restSec >= 0) rest = src.restSec;
+      /* P2-12: duration exercises carry a target hold time (1..86400 s). */
+      let tds = null;
+      if (src.targetDurationSec !== null && src.targetDurationSec !== undefined && src.targetDurationSec !== '') {
+        const n = Number(src.targetDurationSec);
+        if (isFinite(n) && n >= 1 && n <= SET_MAX_DURATION_SEC) tds = Math.round(n);
+      }
       const out = {
         exId: src.exId,
         sets,
         targetRepsMin: rp.min,
         targetRepsMax: rp.max,
         targetWeightKg: w,
+        targetDurationSec: tds,
         restSec: rest,
         note: String(src.note || '').slice(0, 140)
       };
@@ -2412,6 +2589,7 @@
       const container = document.getElementById('routineBuilderExList');
       container.innerHTML = tempRoutineExercises.map((item, idx) => {
         const ex = state.exercises.find(e => e.id === item.exId);
+        const durEx = isDurationEx(ex);
         const noteEsc = String(item.note || '').replace(/"/g, '&quot;');
         return `
           <div style="padding:8px 0; border-bottom:1px solid var(--border);">
@@ -2422,9 +2600,12 @@
             <div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">
               <input type="number" class="set-input" style="width:55px;" value="${item.sets}" onchange="updateBuilderSets(${idx}, this.value)">
               <span style="font-size:12px; color:var(--text-sub);">sets</span>
-              <input type="text" class="set-input" style="width:70px;" value="${formatRepsTarget(item)}" placeholder="8-12" onchange="updateBuilderReps(${idx}, this.value)">
-              <span style="font-size:12px; color:var(--text-sub);">reps</span>
-              <input type="number" class="set-input" style="width:70px;" value="${item.targetWeightKg === null ? '' : formatDisplayWeight(item.targetWeightKg)}" placeholder="${state.unit}" onchange="updateBuilderWeight(${idx}, this.value)">
+              ${durEx
+                ? `<input type="text" class="set-input" style="width:70px;" value="${item.targetDurationSec === null || item.targetDurationSec === undefined ? '' : formatDurationClock(item.targetDurationSec)}" placeholder="1:00" onchange="updateBuilderDuration(${idx}, this.value)">
+                   <span style="font-size:12px; color:var(--text-sub);">target</span>`
+                : `<input type="text" class="set-input" style="width:70px;" value="${formatRepsTarget(item)}" placeholder="8-12" onchange="updateBuilderReps(${idx}, this.value)">
+                   <span style="font-size:12px; color:var(--text-sub);">reps</span>
+                   <input type="number" class="set-input" style="width:70px;" value="${item.targetWeightKg === null ? '' : formatDisplayWeight(item.targetWeightKg)}" placeholder="${state.unit}" onchange="updateBuilderWeight(${idx}, this.value)">`}
               <button class="rest-chip" onclick="openBuilderRestPicker(${idx})">${formatRestLabel(item.restSec)}</button>
             </div>
             <input type="text" class="input-field" style="margin-top:6px; font-size:13px;" value="${noteEsc}" maxlength="140" placeholder="Note (optional)" onchange="updateBuilderNote(${idx}, this.value)">
@@ -2449,6 +2630,19 @@
       const rp = parseRepsTarget(val);
       tempRoutineExercises[idx].targetRepsMin = rp.min;
       tempRoutineExercises[idx].targetRepsMax = rp.max;
+      renderRoutineBuilderList();
+    }
+
+    /* P2-12: target hold time for a duration exercise (blank = no target). */
+    function updateBuilderDuration(idx, val) {
+      if (!tempRoutineExercises[idx]) return;
+      if (val === '' || val === null || val === undefined) {
+        tempRoutineExercises[idx].targetDurationSec = null;
+        renderRoutineBuilderList();
+        return;
+      }
+      const sec = parseDurationInput(val);
+      tempRoutineExercises[idx].targetDurationSec = (sec !== null && !getDurationError(sec)) ? sec : null;
       renderRoutineBuilderList();
     }
 
@@ -2553,6 +2747,7 @@
         targetRepsMin: it.targetRepsMin,
         targetRepsMax: it.targetRepsMax,
         targetWeightKg: it.targetWeightKg,
+        targetDurationSec: it.targetDurationSec,
         restSec: it.restSec,
         note: oldNotes[it.exId] || ''
       }));
@@ -2634,7 +2829,8 @@
       const lane_sets = (prevEx.sets || []).filter(s => normSetType(s && s.type) === type);
       const s = lane_sets[lane];
       if (!s) return null;
-      return { weight: s.weight, reps: s.reps };
+      // P2-12: a stored hold is offered as a previous time too.
+      return { weight: s.weight, reps: s.reps, durationSec: s.durationSec };
     }
 
     function copyPreviousIntoSet(exIdx, sIdx) {
@@ -2647,7 +2843,11 @@
       if (!prev) return false;
       // Copy values only; never tick done here.
       s.weight = prev.weight;
-      s.reps = prev.reps;
+      if (prev.durationSec !== undefined && prev.durationSec !== null && prev.durationSec !== '' && Number(prev.durationSec) >= 1) {
+        s.durationSec = Math.round(Number(prev.durationSec)); // P2-12: copy the last time
+      } else {
+        s.reps = prev.reps;
+      }
       clearSetError(exIdx, sIdx);
       renderActiveWorkout();
       saveActiveSession();
@@ -2675,14 +2875,61 @@
       return '';
     }
 
-    function isSetTickable(s) {
+    /* P2-12: is THIS set a hold? A stored time always wins. On a duration
+       exercise an old reps value (the row used to show reps before this work)
+       keeps meaning reps, so existing history is never reinterpreted. */
+    function setUsesDuration(s, exType) {
+      if (!isDurationEx({ type: exType })) return false;
+      if (!s || typeof s !== 'object') return true;
+      if (Number(s.durationSec) >= 1) return true;
+      return !(Number(s.reps) >= 1);
+    }
+
+    /* P2-12: which fields a set must have filled in, by exercise type. With no
+       exType this is exactly the old weight+reps rule. */
+    function setFieldErrorsFor(s, exType) {
+      const out = { weight: '', reps: '', duration: '' };
+      if (!s || typeof s !== 'object') {
+        out.weight = 'Enter weight (0 for bodyweight)';
+        out.reps = 'Enter reps 1-1000';
+        return out;
+      }
+      if (setUsesDuration(s, exType)) {
+        out.duration = getDurationError(Number(s.durationSec));
+        if (!(s.weight === '' || s.weight === null || s.weight === undefined)) out.weight = getWeightErrorKg(s.weight);
+        return out;
+      }
+      out.weight = getWeightErrorKg(s.weight);
+      out.reps = getRepsError(s.reps);
+      return out;
+    }
+
+    /* 1-arg calls behave exactly as before (weight + reps). The optional 2nd
+       argument is the exercise type, so a duration set is valid on a time. */
+    function isSetTickable(s, exType) {
       if (!s || typeof s !== 'object') return false;
-      return getWeightErrorKg(s.weight) === '' && getRepsError(s.reps) === '';
+      const e = setFieldErrorsFor(s, exType);
+      return e.weight === '' && e.reps === '' && e.duration === '';
+    }
+
+    /* P2-12: a ticked set that actually counts toward a save (duration: a valid
+       time; reps: a positive rep count), so a plank-only workout can be saved. */
+    function isCountableDoneSet(s, exType) {
+      if (!s || !s.done) return false;
+      if (!isSetTickable(s, exType)) return false;
+      if (setUsesDuration(s, exType)) return Number(s.durationSec) >= 1;
+      return Number(s.reps) > 0;
+    }
+
+    /* Catalogue type for one exercise id (undefined for removed/custom rows). */
+    function exerciseTypeById(exId) {
+      const ex = (state && Array.isArray(state.exercises)) ? state.exercises.find(e => e.id === exId) : null;
+      return ex ? ex.type : undefined;
     }
 
     function setFieldError(exIdx, sIdx, field, msg) {
       const key = exIdx + ':' + sIdx;
-      if (!setInputErrors[key]) setInputErrors[key] = { weight: '', reps: '' };
+      if (!setInputErrors[key]) setInputErrors[key] = { weight: '', reps: '', duration: '' };
       setInputErrors[key][field] = msg;
     }
 
@@ -2691,10 +2938,173 @@
       if (!setInputErrors[key]) return;
       if (field) {
         setInputErrors[key][field] = '';
-        if (!setInputErrors[key].weight && !setInputErrors[key].reps) delete setInputErrors[key];
+        if (!setInputErrors[key].weight && !setInputErrors[key].reps && !setInputErrors[key].duration) delete setInputErrors[key];
       } else {
         delete setInputErrors[key];
       }
+    }
+
+    /* P2-12 set stopwatch. Timer state lives on the set itself:
+       timerStartedAt (ms => running), targetSec and targetVibratedAt (once per
+       run). saveActiveSession persists exercises by reference, so a running
+       clock survives a reload and keeps counting from its real start. */
+    function setElapsedSec(s, nowMs) {
+      if (!s || typeof s !== 'object') return null;
+      if (typeof s.timerStartedAt !== 'number' || !isFinite(s.timerStartedAt)) return null;
+      const now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
+      return Math.max(0, (now - s.timerStartedAt) / 1000);
+    }
+
+    function runningSetTimer() {
+      if (!activeWorkout || !Array.isArray(activeWorkout.exercises)) return null;
+      for (let e = 0; e < activeWorkout.exercises.length; e++) {
+        const exItem = activeWorkout.exercises[e];
+        const sets = (exItem && exItem.sets) || [];
+        for (let i = 0; i < sets.length; i++) {
+          const s = sets[i];
+          if (s && typeof s.timerStartedAt === 'number' && isFinite(s.timerStartedAt)) return { exIdx: e, sIdx: i, set: s };
+        }
+      }
+      return null;
+    }
+
+    /* Fills the elapsed time of every running set but never ticks it.
+       "Starting another set" uses this: only Stop ticks. */
+    function stopAllSetTimers(nowMs) {
+      if (!activeWorkout || !Array.isArray(activeWorkout.exercises)) return 0;
+      const now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
+      let n = 0;
+      activeWorkout.exercises.forEach(exItem => {
+        ((exItem && exItem.sets) || []).forEach(s => {
+          if (s && typeof s.timerStartedAt === 'number' && isFinite(s.timerStartedAt)) {
+            s.durationSec = Math.max(1, Math.round(setElapsedSec(s, now) || 0));
+            delete s.timerStartedAt;
+            delete s.targetVibratedAt;
+            n++;
+          }
+        });
+      });
+      return n;
+    }
+
+    function startSetTimer(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      if (!s) return false;
+      stopAllSetTimers(); // only one set runs at a time (fills the previous time)
+      s.timerStartedAt = Date.now();
+      delete s.targetVibratedAt; // the target may vibrate again on this run
+      clearSetError(exIdx, sIdx);
+      renderActiveWorkout();
+      saveActiveSession();
+      return true;
+    }
+
+    function stopSetTimer(exIdx, sIdx, nowMs) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      if (!s) return false;
+      const elapsed = setElapsedSec(s, nowMs);
+      if (elapsed !== null) {
+        s.durationSec = Math.max(1, Math.round(elapsed)); // a stopped hold is at least 1 s
+        delete s.timerStartedAt;
+        delete s.targetVibratedAt;
+      }
+      s.done = false; // Stop ticks through the normal path below
+      return toggleSetDone(exIdx, sIdx);
+    }
+
+    function toggleSetTimer(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx]) return false;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      if (!s) return false;
+      return (typeof s.timerStartedAt === 'number' && isFinite(s.timerStartedAt))
+        ? stopSetTimer(exIdx, sIdx)
+        : startSetTimer(exIdx, sIdx);
+    }
+
+    /* 1 s painter: rewrites only the time box text and turns it green (+ one
+       vibration per run) once the target is reached. Keeps counting. */
+    function paintRunningSetClocks(nowMs) {
+      if (!activeWorkout || !Array.isArray(activeWorkout.exercises)) return 0;
+      const now = (typeof nowMs === 'number' && isFinite(nowMs)) ? nowMs : Date.now();
+      let painted = 0;
+      activeWorkout.exercises.forEach((exItem, exIdx) => {
+        ((exItem && exItem.sets) || []).forEach((s, sIdx) => {
+          const elapsed = setElapsedSec(s, now);
+          if (elapsed === null) return;
+          const el = document.getElementById('set-time-' + exIdx + '-' + sIdx);
+          if (el && 'value' in el) { el.value = formatDurationClock(Math.floor(elapsed)); painted++; }
+          const target = Number(s.targetSec);
+          const reached = isFinite(target) && target >= 1 && elapsed >= target;
+          if (el && el.classList) {
+            if (reached) el.classList.add('time-target');
+            else el.classList.remove('time-target');
+          }
+          if (reached && typeof s.targetVibratedAt !== 'number') {
+            try {
+              if (typeof navigator !== 'undefined' && navigator && typeof navigator.vibrate === 'function') navigator.vibrate(200);
+            } catch (e) {}
+            s.targetVibratedAt = now;
+          }
+        });
+      });
+      return painted;
+    }
+
+    function startSetClockTicker() {
+      clearInterval(setClockInterval);
+      setClockInterval = setInterval(function () { paintRunningSetClocks(); }, 1000);
+    }
+
+    function stopSetClockTicker() {
+      clearInterval(setClockInterval);
+      setClockInterval = null;
+    }
+
+    /* Typing the time: model + in-place paint only, never a rebuild (same rule
+       as updateSetVal), so the focused box and keyboard survive keystrokes. */
+    function updateSetDuration(exIdx, sIdx, val) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      if (typeof s.timerStartedAt === 'number' && isFinite(s.timerStartedAt)) {
+        // Typing a time abandons the run; the typed value is the one kept.
+        delete s.timerStartedAt;
+        delete s.targetVibratedAt;
+      }
+      if (val === '' || val === null || val === undefined) {
+        s.durationSec = '';
+        clearSetError(exIdx, sIdx, 'duration');
+        paintSetRowError(exIdx, sIdx);
+        saveActiveSession();
+        return true;
+      }
+      const sec = parseDurationInput(val);
+      const err = getDurationError(sec);
+      if (err) {
+        setFieldError(exIdx, sIdx, 'duration', err);
+        paintSetRowError(exIdx, sIdx);
+        saveActiveSession();
+        return false;
+      }
+      s.durationSec = sec;
+      clearSetError(exIdx, sIdx, 'duration');
+      paintSetRowError(exIdx, sIdx);
+      saveActiveSession();
+      return true;
+    }
+
+    /* Blur/enter normalisation of the time box, in place (never rebuilds). */
+    function handleSetDurationChange(exIdx, sIdx) {
+      if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
+      const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      try {
+        const el = document.getElementById('set-time-' + exIdx + '-' + sIdx);
+        if (el && 'value' in el && Number(s.durationSec) >= 1) el.value = formatDurationClock(Math.round(Number(s.durationSec)));
+      } catch (e) {}
+      paintSetRowError(exIdx, sIdx);
+      saveActiveSession();
+      return true;
     }
 
     /* P2-03: per-exercise rest helpers. Missing/legacy values fall back to
@@ -2785,7 +3195,8 @@
       if (!activeWorkout) return 0;
       let n = 0;
       activeWorkout.exercises.forEach(ex => {
-        (ex.sets || []).forEach(s => { if (s.done && isSetTickable(s) && Number(s.reps) > 0) n++; });
+        const exType = exerciseTypeById(ex && ex.exId);
+        (ex.sets || []).forEach(s => { if (isCountableDoneSet(s, exType)) n++; });
       });
       return n;
     }
@@ -2840,6 +3251,7 @@
             if (rt.exercises[j] && rt.exercises[j].exId === item.exId) inst++;
           }
           const sets = [];
+          const durEx = isDurationEx(state.exercises.find(e => e.id === item.exId));
           for (let i = 0; i < norm.sets; i++) {
             /* Set type: stored setTypes win (P2-08 history-made routines);
                plain routines start every set as Normal. Lane counts within
@@ -2852,6 +3264,21 @@
             const prev = getPreviousSet(item.exId, lane, st, inst, rt.id || null);
             // P2-04: explicit targets win; otherwise keep the legacy previous-value prefill.
             const hasTargets = (norm.targetRepsMin !== null) || (norm.targetWeightKg !== null);
+            if (durEx) {
+              /* P2-12: a hold set carries a time (+ optional load), no reps.
+                 A routine target sets targetSec; otherwise the last time is
+                 pre-filled like the reps path does. */
+              const lastHold = (prev && Number(prev.durationSec) >= 1) ? Math.round(Number(prev.durationSec)) : '';
+              const holdSet = {
+                type: st,
+                weight: (norm.targetWeightKg !== null) ? norm.targetWeightKg : (prev && prev.weight !== undefined && prev.weight !== null && prev.weight !== '' ? prev.weight : ''),
+                durationSec: (norm.targetDurationSec !== null) ? '' : lastHold,
+                done: false
+              };
+              if (norm.targetDurationSec !== null) holdSet.targetSec = norm.targetDurationSec;
+              sets.push(holdSet);
+              continue;
+            }
             sets.push({
               type: st,
               weight: (norm.targetWeightKg !== null) ? norm.targetWeightKg : (prev ? prev.weight : ''),
@@ -2888,6 +3315,7 @@
       clearInterval(workoutInterval);
       workoutInterval = setInterval(updateElapsedTimer, 1000);
       updateElapsedTimer();
+      startSetClockTicker(); // P2-12: keep running hold clocks counting
     }
 
     function minimizeWorkout() {
@@ -2930,6 +3358,8 @@
 
       activeWorkout.exercises.forEach((exItem, exIdx) => {
         const exInfo = state.exercises.find(e => e.id === exItem.exId) || { name: 'Exercise', muscle: '' };
+        const durEx = isDurationEx(exInfo);
+        const durKg = durEx && durationSetAllowsWeight(exInfo);
         const block = document.createElement('div');
         block.className = 'ex-block';
 
@@ -2937,8 +3367,8 @@
           <div class="set-row-header">
             <div>SET</div>
             <div>PREVIOUS</div>
-            <div>${state.unit}</div>
-            <div>REPS</div>
+            <div>${durEx ? 'TIME' : state.unit}</div>
+            <div>${durEx ? '' : 'REPS'}</div>
             <div>✓</div>
           </div>
         `;
@@ -2949,14 +3379,47 @@
           const lane = getSetLaneIndex(exItem.sets, sIdx);
           const inst = getExInstanceIdx(activeWorkout.exercises, exIdx);
           const prev = getPreviousSet(exItem.exId, lane, s.type, inst, activeWorkout.routineId || null);
-          const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
           const label = s.type === 'N' ? normalCounter++ : s.type;
           const key = exIdx + ':' + sIdx;
-          const err = setInputErrors[key] || { weight: '', reps: '' };
+          const err = setInputErrors[key] || { weight: '', reps: '', duration: '' };
           const wErr = err.weight || '';
           const rErr = err.reps || '';
-          const rowMsg = wErr && rErr ? wErr + ' · ' + rErr : (wErr || rErr);
+          const dErr = err.duration || '';
+          const rowMsg = [wErr, rErr, dErr].filter(Boolean).join(' · ');
 
+          if (durEx) {
+            /* P2-12 row: set type · previous time · TIME box · Start/Stop · ✓ */
+            const elapsed = setElapsedSec(s, Date.now());
+            const running = typeof s.timerStartedAt === 'number' && isFinite(s.timerStartedAt);
+            const hasTime = Number(s.durationSec) >= 1;
+            const clock = running ? formatDurationClock(Math.floor(elapsed)) : (hasTime ? formatDurationClock(Math.round(Number(s.durationSec))) : '');
+            const target = Number(s.targetSec);
+            const reached = running && isFinite(target) && target >= 1 && elapsed >= target;
+            let prevStr = '—';
+            if (prev) {
+              const prevHold = Number(prev.durationSec) >= 1 ? formatDurationClock(Math.round(Number(prev.durationSec))) : '';
+              const prevKg = (prev.weight !== undefined && prev.weight !== null && prev.weight !== '' && Number(prev.weight) > 0)
+                ? formatDisplayWeight(prev.weight) + state.unit.toLowerCase() + ' · ' : '';
+              prevStr = prevKg + (prevHold || (Number(prev.reps) >= 1 ? '× ' + esc(String(prev.reps)) : '—'));
+            }
+            setsHtml += `
+              <div class="set-row ${s.done ? 'done' : ''}">
+                <button class="set-type-btn set-type-${s.type}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
+                <div class="prev-text" onclick="copyPreviousIntoSet(${exIdx}, ${sIdx})">${prevStr}</div>
+                <input id="set-time-${exIdx}-${sIdx}" type="text" class="set-input ${dErr ? 'invalid' : ''} ${reached ? 'time-target' : ''}" value="${clock}" placeholder="1:05" onfocus="this.select()" oninput="updateSetDuration(${exIdx}, ${sIdx}, this.value)" onchange="handleSetDurationChange(${exIdx}, ${sIdx})">
+                <button class="set-timer-btn ${running ? 'running' : ''}" onclick="toggleSetTimer(${exIdx}, ${sIdx})">${running ? '■ Stop' : '▶ Start'}</button>
+                <button class="check-btn" onclick="toggleSetDone(${exIdx}, ${sIdx})">✓</button>
+                ${durKg ? `<div style="grid-column:1/-1; display:flex; align-items:center; gap:6px; padding:2px 0;">
+                  <input id="set-w-${exIdx}-${sIdx}" type="number" class="set-input ${wErr ? 'invalid' : ''}" style="width:72px;" value="${s.weight === '' || s.weight === undefined || s.weight === null ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateSetVal(${exIdx}, ${sIdx}, 'weight', this.value)" onchange="handleSetFieldChange(${exIdx}, ${sIdx})">
+                  <span style="font-size:11px; color:var(--text-sub);">${state.unit} load (optional)</span>
+                </div>` : ''}
+                <div id="set-err-${exIdx}-${sIdx}" class="set-error"${rowMsg ? '' : ' style="display:none;"'}>${rowMsg}</div>
+              </div>
+            `;
+            return;
+          }
+
+          const prevStr = prev ? `${formatDisplayWeight(prev.weight)}${state.unit.toLowerCase()} × ${prev.reps}` : '—';
           setsHtml += `
             <div class="set-row ${s.done ? 'done' : ''}">
               <button class="set-type-btn set-type-${s.type}" onclick="openSetMenu(${exIdx}, ${sIdx})">${label}</button>
@@ -2971,11 +3434,14 @@
 
         const restSec = getExerciseRestSec(exIdx);
         const noteEsc = String(exItem.note || '').replace(/"/g, '&quot;');
+        const targetSecVal = durEx ? (exItem.sets || []).map(s => Number(s.targetSec)).find(n => isFinite(n) && n >= 1) : null;
+        const targetChip = (durEx && isFinite(targetSecVal)) ? `<span class="badge" id="set-target-${exIdx}">target ${Math.round(targetSecVal)} s</span>` : '';
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
               <div class="ex-name" style="cursor:pointer;" onclick="openExerciseProgress('${esc(exItem.exId)}','workout')">${esc(exInfo.name)}</div>
               <span class="badge">${esc(exPrimary(exInfo))}</span>
+              ${targetChip}
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
               <button class="btn" style="margin-left:6px; padding:4px 8px; font-size:12px;" title="Plate calculator" onclick="openPlateCalcFor(${exIdx})">🧮</button>
             </div>
@@ -3089,9 +3555,10 @@
     function paintSetRowError(exIdx, sIdx) {
       try {
         const key = exIdx + ':' + sIdx;
-        const err = setInputErrors[key] || { weight: '', reps: '' };
+        const err = setInputErrors[key] || { weight: '', reps: '', duration: '' };
         const wEl = document.getElementById('set-w-' + exIdx + '-' + sIdx);
         const rEl = document.getElementById('set-r-' + exIdx + '-' + sIdx);
+        const tEl = document.getElementById('set-time-' + exIdx + '-' + sIdx);
         const eEl = document.getElementById('set-err-' + exIdx + '-' + sIdx);
         if (wEl && wEl.classList) {
           if (err.weight) wEl.classList.add('invalid');
@@ -3101,8 +3568,12 @@
           if (err.reps) rEl.classList.add('invalid');
           else rEl.classList.remove('invalid');
         }
+        if (tEl && tEl.classList) {
+          if (err.duration) tEl.classList.add('invalid');
+          else tEl.classList.remove('invalid');
+        }
         if (eEl) {
-          const msg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          const msg = [err.weight, err.reps, err.duration].filter(Boolean).join(' · ');
           if ('textContent' in eEl) eEl.textContent = msg;
           if (eEl.style) eEl.style.display = msg ? '' : 'none';
         }
@@ -3185,13 +3656,14 @@
     function toggleSetDone(exIdx, sIdx) {
       if (!activeWorkout || !activeWorkout.exercises[exIdx] || !activeWorkout.exercises[exIdx].sets[sIdx]) return false;
       const s = activeWorkout.exercises[exIdx].sets[sIdx];
+      const exType = exerciseTypeById(activeWorkout.exercises[exIdx].exId);
       if (!s.done) {
-        // P2-02: an invalid set cannot be ticked.
-        const wErr = getWeightErrorKg(s.weight);
-        const rErr = getRepsError(s.reps);
-        if (wErr || rErr) {
-          if (wErr) setFieldError(exIdx, sIdx, 'weight', wErr);
-          if (rErr) setFieldError(exIdx, sIdx, 'reps', rErr);
+        // P2-02 / P2-12: an invalid set cannot be ticked (duration rows use a time).
+        const errs = setFieldErrorsFor(s, exType);
+        if (errs.weight || errs.reps || errs.duration) {
+          if (errs.weight) setFieldError(exIdx, sIdx, 'weight', errs.weight);
+          if (errs.reps) setFieldError(exIdx, sIdx, 'reps', errs.reps);
+          if (errs.duration) setFieldError(exIdx, sIdx, 'duration', errs.duration);
           renderActiveWorkout();
           saveActiveSession();
           return false;
@@ -3212,9 +3684,21 @@
     }
 
     function addSetToActive(exIdx) {
-      const sets = activeWorkout.exercises[exIdx].sets;
-      const last = sets[sets.length - 1] || { weight: '', reps: '' };
-      sets.push({ type: 'N', weight: last.weight, reps: last.reps, done: false });
+      const exItem = activeWorkout.exercises[exIdx];
+      const sets = exItem.sets;
+      const last = sets[sets.length - 1] || {};
+      if (isDurationEx(state.exercises.find(e => e.id === exItem.exId))) {
+        // P2-12: a new hold row copies the time and the optional load.
+        sets.push({
+          type: 'N',
+          weight: (last.weight === undefined || last.weight === null) ? '' : last.weight,
+          durationSec: (last.durationSec === undefined || last.durationSec === null) ? '' : last.durationSec,
+          done: false
+        });
+      } else {
+        const prev = { weight: '', reps: '', ...last };
+        sets.push({ type: 'N', weight: prev.weight, reps: prev.reps, done: false });
+      }
       renderActiveWorkout();
       saveActiveSession();
     }
@@ -3253,15 +3737,18 @@
       if (typeof newExId !== 'string' || !newExId) return false;
       const ex = activeWorkout.exercises[exIdx];
       const count = Math.max(1, (ex.sets || []).length);
-      const old = (ex.sets || []).map(s => ({ weight: s.weight, reps: s.reps }));
+      const old = (ex.sets || []).map(s => ({ weight: s.weight, reps: s.reps, durationSec: s.durationSec }));
       const sets = [];
       for (let i = 0; i < count; i++) {
-        sets.push({
+        const o = (keepValues && old[i]) ? old[i] : null;
+        const fresh = {
           type: 'N',
-          weight: (keepValues && old[i]) ? old[i].weight : '',
-          reps: (keepValues && old[i]) ? old[i].reps : '',
+          weight: o ? o.weight : '',
+          reps: o ? o.reps : '',
           done: false
-        });
+        };
+        if (o && o.durationSec !== undefined) fresh.durationSec = o.durationSec; // P2-12
+        sets.push(fresh);
       }
       activeWorkout.exercises[exIdx] = {
         exId: newExId,
@@ -3375,8 +3862,9 @@
     function finishReviewTickAll() {
       if (!activeWorkout) return;
       activeWorkout.exercises.forEach(ex => {
+        const exType = exerciseTypeById(ex && ex.exId);
         (ex.sets || []).forEach(s => {
-          if (!s.done && isSetTickable(s)) s.done = true;
+          if (!s.done && isSetTickable(s, exType)) s.done = true;
         });
       });
       setInputErrors = {};
@@ -3398,16 +3886,31 @@
       if (activeWorkout) saveActiveSession();
     }
 
+    /* P2-12: one duration set as stored in history: the hold time, an optional
+       real load, and nothing else (no reps, no timer/ target bookkeeping). */
+    function pickDurationHistorySet(s) {
+      const out = { type: normSetType(s && s.type), durationSec: Math.max(1, Math.round(Number(s.durationSec) || 0)), done: true };
+      if (s && !(s.weight === '' || s.weight === null || s.weight === undefined) && isFinite(Number(s.weight))) {
+        out.weight = Number(s.weight);
+      }
+      return out;
+    }
+
     function doFinishSave() {
       if (!activeWorkout || activeWorkout.finishing) return;
       // P2-02: only valid ticked sets are saved; volume is clamped so it can
       // never go negative (e.g. legacy -5 kg rows).
       // P2-05: the per-exercise workout note is saved with the workout.
-      const completedExercises = activeWorkout.exercises.map(ex => ({
-        exId: ex.exId,
-        note: String(ex.note || '').slice(0, 140),
-        sets: ex.sets.filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0)
-      })).filter(ex => ex.sets.length > 0);
+      // P2-12: duration exercises save their hold time instead of reps.
+      const completedExercises = activeWorkout.exercises.map(ex => {
+        const exType = exerciseTypeById(ex && ex.exId);
+        const doneSets = (ex.sets || []).filter(s => isCountableDoneSet(s, exType));
+        return {
+          exId: ex.exId,
+          note: String(ex.note || '').slice(0, 140),
+          sets: doneSets.map(s => setUsesDuration(s, exType) ? pickDurationHistorySet(s) : s)
+        };
+      }).filter(ex => ex.sets.length > 0);
 
       // P2-04: optional "update routine from this workout" offer. History is
       // saved first below; the routine only changes on an explicit Yes.
@@ -3415,17 +3918,30 @@
       let performedForUpdate = null;
       if (finishedRoutineId) {
         performedForUpdate = activeWorkout.exercises.map(ex => {
-          const doneSets = (ex.sets || []).filter(s => s.done && isSetTickable(s) && Number(s.reps) > 0);
+          const exType = exerciseTypeById(ex && ex.exId);
+          const doneSets = (ex.sets || []).filter(s => isCountableDoneSet(s, exType));
           if (doneSets.length === 0) return null;
           const last = doneSets[doneSets.length - 1];
+          const restSec = (typeof ex.restSec === 'number' && isFinite(ex.restSec) && ex.restSec >= 0)
+            ? ex.restSec : (state.defaultRest || 90);
+          if (setUsesDuration(last, exType)) {
+            return {
+              exId: ex.exId,
+              sets: doneSets.length,
+              targetRepsMin: null,
+              targetRepsMax: null,
+              targetWeightKg: (last.weight === '' || last.weight === null || last.weight === undefined || !isFinite(Number(last.weight))) ? null : Number(last.weight),
+              targetDurationSec: Math.max(1, Math.round(Number(last.durationSec) || 0)),
+              restSec: restSec
+            };
+          }
           return {
             exId: ex.exId,
             sets: doneSets.length,
             targetRepsMin: Number(last.reps),
             targetRepsMax: Number(last.reps),
             targetWeightKg: Number(last.weight),
-            restSec: (typeof ex.restSec === 'number' && isFinite(ex.restSec) && ex.restSec >= 0)
-              ? ex.restSec : (state.defaultRest || 90)
+            restSec: restSec
           };
         }).filter(Boolean);
       }
@@ -3501,6 +4017,7 @@
       deletedSetTimer = null;
       clearInterval(workoutInterval);
       clearInterval(restInterval);
+      stopSetClockTicker(); // P2-12
       if (bar) bar.classList.remove('active');
       clearActiveSessionStorage();
       document.getElementById('activeWorkoutDrawer').classList.remove('open');
@@ -3511,6 +4028,7 @@
        excludeId skips one history entry (P2-08 edit-save PR check). */
     function getBest1RM(exId, excludeId) {
       let best = 0;
+      if (isDurationEx((state.exercises || []).find(e => e.id === exId))) return 0; // P2-12: no 1RM from a hold
       state.history.forEach(w => {
         if (excludeId != null && w && String(w.id) === String(excludeId)) return;
         const found = w.exercises.find(e => e.exId === exId);
@@ -3701,11 +4219,16 @@
       let inst = 0;
       activeWorkout.exercises.forEach(e => { if (e && e.exId === exId) inst++; });
       const prev = getPreviousSet(exId, 0, 'N', inst, activeWorkout.routineId || null);
+      const exInfo = state.exercises.find(e => e.id === exId);
+      // P2-12: a duration exercise starts with a time box, not reps.
+      const firstSet = isDurationEx(exInfo)
+        ? { type: 'N', weight: '', durationSec: (prev && Number(prev.durationSec) >= 1) ? Math.round(Number(prev.durationSec)) : '', done: false }
+        : { type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false };
       activeWorkout.exercises.push({
         exId,
         restSec: (state.defaultRest || 90),
         note: '',
-        sets: [{ type: 'N', weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false }]
+        sets: [firstSet]
       });
     }
 
@@ -3958,7 +4481,9 @@
     function openExerciseProgress(exId, origin) {
       progressExId = exId;
       progressOrigin = origin || null;
-      progressMetric = 'e1rm';
+      const ex = (state && state.exercises) ? state.exercises.find(e => e.id === exId) : null;
+      // P2-12: a timed exercise opens on its hold chart, not an empty 1RM one.
+      progressMetric = isDurationEx(ex) ? 'longestHold' : 'e1rm';
       progressRange = 'All';
       renderExerciseProgress();
       document.getElementById('exProgressModal').classList.add('open');
@@ -3990,8 +4515,10 @@
             if (!item || !item.exId) return;
             const ex = (state.exercises || []).find(e => e.id === item.exId);
             if (!ex) return;
+            // P2-12: a timed exercise counts through its holds, not reps.
             const counting = metricCountingSets(item.sets || []);
-            if (counting.length === 0) return;
+            const holds = durationCountingSets(item.sets || []);
+            if (counting.length === 0 && holds.length === 0) return;
             if (!lastDone[item.exId] || (w.date || 0) > (lastDone[item.exId] || 0)) {
               lastDone[item.exId] = w.date || 0;
               records[item.exId] = { exId: item.exId, exName: ex.name, lastDateMs: w.date || 0 };
@@ -4011,7 +4538,13 @@
           const recs = r.exId ? exerciseRecords(r.exId) : null;
           let valueStr = '—';
           if (recs) {
-            if (recs.heaviestWeight && usesLoadMetrics(ex)) valueStr = formatDisplayWeight(recs.heaviestWeight.valueKg) + ' ' + state.unit + ' (heaviest)';
+            if (ex && isDurationEx(ex)) {
+              // P2-12: a hold reads "kg · 1:05" (carry) or just "1:05" (plank).
+              if (recs.longestHold) {
+                const kg = (recs.longestHold.weightKg && recs.longestHold.weightKg > 0) ? formatDisplayWeight(recs.longestHold.weightKg) + state.unit + ' · ' : '';
+                valueStr = kg + formatDurationClock(Math.round(recs.longestHold.durationSec)) + ' (hold)';
+              }
+            } else if (recs.heaviestWeight && usesLoadMetrics(ex)) valueStr = formatDisplayWeight(recs.heaviestWeight.valueKg) + ' ' + state.unit + ' (heaviest)';
             else if (recs.mostRepsInSet) valueStr = recs.mostRepsInSet.reps + ' reps (best)';
             else valueStr = '—';
           }
@@ -4042,9 +4575,16 @@
       const sessions = model.sessions;
       const records = model.records;
       const loadEx = usesLoadMetrics(ex);
+      const durEx = isDurationEx(ex);
+      const durMetrics = ['longestHold', 'totalTime'];
 
       // Metric buttons (only show load metrics if load exercise; always show reps)
-      const metricButtons = loadEx
+      const metricButtons = durEx
+        ? [
+            { key: 'longestHold', label: 'Longest hold' },
+            { key: 'totalTime', label: 'Session time' }
+          ]
+        : loadEx
         ? [
             { key: 'e1rm', label: 'Best set (e1RM)' },
             { key: 'heaviest', label: 'Heaviest weight' },
@@ -4064,8 +4604,10 @@
       let chartHtml = '';
       const points = exerciseSeries(sessions.map(s => s), progressMetric, progressRange);
       // If metric is load-based and exercise is non-load, fall back to bestReps.
+      // P2-12: a duration exercise falls back to its longest hold instead.
       let effectiveMetric = progressMetric;
-      if (!loadEx && (effectiveMetric === 'e1rm' || effectiveMetric === 'heaviest')) effectiveMetric = 'bestReps';
+      if (durEx && durMetrics.indexOf(effectiveMetric) < 0) effectiveMetric = 'longestHold';
+      if (!durEx && !loadEx && (effectiveMetric === 'e1rm' || effectiveMetric === 'heaviest')) effectiveMetric = 'bestReps';
       const chartPoints = exerciseSeries(sessions.map(s => s), effectiveMetric, progressRange);
 
       if (chartPoints.length === 0) {
@@ -4100,7 +4642,12 @@
         const minLabelY = yScale(minVal || 0);
 
         let metricLabel = '';
-        if (effectiveMetric === 'e1rm') metricLabel = '1RM (est.) — ' + (loadEx ? (state.unit || 'KG') : 'reps');
+        const axisFmt = (v) => (loadEx && !durEx) ? formatDisplayWeight(Math.round(v * 100) / 100)
+          : (durEx && durMetrics.indexOf(effectiveMetric) >= 0) ? formatDurationClock(Math.round(v))
+          : Math.round(v);
+        if (effectiveMetric === 'longestHold') metricLabel = 'Longest hold — time';
+        else if (effectiveMetric === 'totalTime') metricLabel = 'Total time — time';
+        else if (effectiveMetric === 'e1rm') metricLabel = '1RM (est.) — ' + (loadEx ? (state.unit || 'KG') : 'reps');
         else if (effectiveMetric === 'heaviest') metricLabel = 'Heaviest weight — ' + (loadEx ? (state.unit || 'KG') : '—');
         else if (effectiveMetric === 'volume') metricLabel = 'Session volume — ' + (loadEx ? (state.unit || 'KG') : 'reps');
         else metricLabel = 'Best reps';
@@ -4111,8 +4658,8 @@
           + '<line x1="' + pad.left + '" y1="' + minLabelY + '" x2="' + (w - pad.right) + '" y2="' + minLabelY + '" stroke-dasharray="3 3" stroke="var(--border)" stroke-width="0.5"/>'
           + '<polyline points="' + polylinePoints + '" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
           + dotsHtml
-          + '<text x="4" y="' + (maxLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (loadEx ? formatDisplayWeight(Math.round(maxVal * 100) / 100) : Math.round(maxVal)) + '</text>'
-          + '<text x="4" y="' + (minLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (loadEx ? formatDisplayWeight(Math.round(minVal * 100) / 100) : Math.round(minVal || 0)) + '</text>'
+          + '<text x="4" y="' + (maxLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (durEx && durMetrics.indexOf(effectiveMetric) >= 0 ? formatDurationClock(Math.round(maxVal)) : axisFmt(maxVal)) + '</text>'
+          + '<text x="4" y="' + (minLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (durEx && durMetrics.indexOf(effectiveMetric) >= 0 ? formatDurationClock(Math.round(minVal || 0)) : axisFmt(minVal || 0)) + '</text>'
           + '</svg>';
       }
 
@@ -4134,7 +4681,9 @@
 
       // Note for non-estimated
       let noteHtml = '';
-      if (loadEx && progressMetric === 'e1rm') {
+      if (durEx && progressMetric === 'longestHold') {
+        noteHtml = '<div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">Hold times come from timed sets; no est. 1RM or volume is invented.</div>';
+      } else if (loadEx && progressMetric === 'e1rm') {
         noteHtml = '<div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">Estimated 1RM uses Epley (1 + reps/30). Not estimated above 12 reps.</div>';
       } else if (!loadEx && progressMetric === 'e1rm') {
         noteHtml = '<div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">Load metrics not available for this exercise type.</div>';
@@ -4142,11 +4691,25 @@
 
       // Records card
       let recordsHtml = '<h3 style="margin-top:4px;">Records</h3>';
-      if (!loadEx) {
+      if (durEx) {
+        recordsHtml += '<div style="font-size:12px; color:var(--text-sub); margin-bottom:8px;">Timed exercise: records are hold times, never est. 1RM or volume.</div>';
+      } else if (!loadEx) {
         recordsHtml += '<div style="font-size:12px; color:var(--text-sub); margin-bottom:8px;">Load metrics not shown for this exercise type. Rep records shown below.</div>';
       }
       recordsHtml += '<div class="card" style="padding:12px;">';
-      if (!loadEx) {
+      if (durEx) {
+        if (records.longestHold) {
+          const lh = records.longestHold;
+          const kg = (lh.weightKg && lh.weightKg > 0) ? formatDisplayWeight(lh.weightKg) + ' ' + state.unit + ' · ' : '';
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(lh.histId || '')) + '\')"><span>Longest hold</span><b>' + kg + formatDurationClock(Math.round(lh.durationSec)) + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(lh.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.heaviestWeight) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.heaviestWeight.histId || '')) + '\')"><span>Heaviest carry</span><b>' + formatDisplayWeight(records.heaviestWeight.valueKg) + ' ' + state.unit + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.heaviestWeight.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (!records.longestHold && !records.heaviestWeight) {
+          recordsHtml += '<div style="font-size:13px; color:var(--text-sub);">No holds logged yet.</div>';
+        }
+      } else if (!loadEx) {
         if (records.mostRepsInSet) {
           recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.mostRepsInSet.histId || '')) + '\')"><span>Most reps</span><b>' + records.mostRepsInSet.reps + ' reps</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.mostRepsInSet.dateMs || 0).toLocaleDateString()) + '</span></div>';
         }
@@ -4195,10 +4758,14 @@
           const setRows = s.sets.map(st => {
             if (st.type !== 'W') workNo++;
             const badge = st.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : '';
+            const isHold = durEx && st.durationSec !== undefined && st.durationSec !== null;
             const weightStr = (st.weightKg !== null && st.weightKg !== undefined && st.weightKg > 0) ? formatDisplayWeight(st.weightKg) + ' ' + state.unit : '—';
+            const valueStr = isHold
+              ? ((st.weightKg !== null && st.weightKg !== undefined && st.weightKg > 0 ? weightStr + ' · ' : '') + '<b>' + formatDurationClock(Math.round(Number(st.durationSec) || 0)) + '</b>')
+              : weightStr + ' × ' + esc(String(st.reps));
             return '<div style="display:flex; justify-content:space-between; font-size:12px; padding:3px 0; border-bottom:1px solid var(--border);">'
               + '<span>' + (st.type === 'N' ? 'Set ' + workNo : '<b style="color:' + (st.type === 'W' ? 'var(--warning, #f59e0b)' : st.type === 'F' ? 'var(--danger, #ef4444)' : 'var(--primary)') + ';">' + esc(st.type) + '</b> ' + (st.type === 'W' ? 'Warm-up' : st.type === 'F' ? 'Failure' : 'Drop')) + badge + '</span>'
-              + '<span style="color:var(--text-sub);">' + weightStr + ' × ' + esc(String(st.reps)) + '</span>'
+              + '<span style="color:var(--text-sub);">' + valueStr + '</span>'
               + '</div>';
           }).join('');
           return '<div class="card" style="padding:12px; cursor:pointer;" onclick="openHistDetail(\'' + esc(s.histId) + '\')">'
@@ -4296,17 +4863,28 @@
 
         const exSummary = (w.exercises || []).map(item => {
           const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
+          const durEx = isDurationEx(ex);
           const sets = Array.isArray(item.sets) ? item.sets : [];
-          const bestSet = sets.length > 0
-            ? sets.reduce((acc, s) => ((Number(s.weight) || 0) * (Number(s.reps) || 0) > (Number(acc.weight) || 0) * (Number(acc.reps) || 0) ? s : acc), sets[0])
-            : { weight: 0, reps: 0 };
+          let bestLabel;
+          if (durEx) {
+            // P2-12: a hold's "best" is the longest time, with its real kg if any.
+            const hold = sets.reduce((acc, s) => (Number(s.durationSec) || 0) > (Number(acc && acc.durationSec) || 0) ? s : acc, sets[0]);
+            const kg = (hold && hold.weight !== '' && hold.weight !== undefined && hold.weight !== null && Number(hold.weight) > 0)
+              ? formatDisplayWeight(hold.weight) + state.unit + ' · ' : '';
+            bestLabel = kg + (hold && Number(hold.durationSec) >= 1 ? formatDurationClock(Math.round(Number(hold.durationSec))) : '—');
+          } else {
+            const bestSet = sets.length > 0
+              ? sets.reduce((acc, s) => ((Number(s.weight) || 0) * (Number(s.reps) || 0) > (Number(acc.weight) || 0) * (Number(acc.reps) || 0) ? s : acc), sets[0])
+              : { weight: 0, reps: 0 };
+            bestLabel = `${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}`;
+          }
           const noteLine = item.note
             ? `<div style="font-size:12px; color:var(--text-sub); padding:1px 0;">📝 ${esc(item.note)}</div>`
             : '';
           return `
             <div style="display:flex; justify-content:space-between; font-size:13px; padding:3px 0;">
               <span><b>${sets.length} ×</b> ${esc(ex.name)} ${item.isPR ? '<span class="badge badge-pr">🏆 PR</span>' : ''}</span>
-              <span style="color:var(--text-sub);">Best: ${formatDisplayWeight(bestSet.weight)}${state.unit} × ${bestSet.reps}</span>
+              <span style="color:var(--text-sub);">Best: ${bestLabel}</span>
             </div>
             ${noteLine}
           `;
@@ -4384,17 +4962,19 @@
       let totalSets = 0;
       let prCount = 0;
       (exercises || []).forEach(ex => {
-        const prevBest1RM = getBest1RM(ex.exId, excludeHistId);
+        const durEx = isDurationEx((state.exercises || []).find(e => e.id === ex.exId));
+        const prevBest1RM = durEx ? 0 : getBest1RM(ex.exId, excludeHistId);
         let sessionBest1RM = 0;
         (ex.sets || []).forEach(s => {
+          totalSets++;
+          if (durEx) return; // P2-12: holds are sets, never volume or a 1RM
           const w = Math.max(0, Number(s.weight) || 0);
           const r = Math.max(0, Number(s.reps) || 0);
           totalVolume += w * r;
-          totalSets++;
           const est1RM = w * (1 + r / 30);
           if (est1RM > sessionBest1RM) sessionBest1RM = est1RM;
         });
-        if (sessionBest1RM > prevBest1RM && prevBest1RM > 0) {
+        if (!durEx && sessionBest1RM > prevBest1RM && prevBest1RM > 0) {
           ex.isPR = true;
           prCount++;
         } else {
@@ -4437,14 +5017,18 @@
       const mins = Math.max(1, Math.round((Number(w.durationSec) || 0) / 60));
       const exHtml = (w.exercises || []).map(item => {
         const ex = state.exercises.find(e => e.id === item.exId) || { name: 'Exercise' };
+        const durEx = isDurationEx(ex);
         const sets = Array.isArray(item.sets) ? item.sets : [];
         const rows = sets.map((s, i) => {
           const t = normSetType(s && s.type);
+          const valueHtml = (durEx && setUsesDuration(s, 'duration'))
+            ? `<span>${(s.weight !== '' && s.weight !== undefined && s.weight !== null && Number(s.weight) > 0) ? '<b>' + formatDisplayWeight(s.weight) + '</b> ' + state.unit + ' · ' : ''}<b>${formatDurationClock(Math.round(Number(s.durationSec) || 0))}</b></span>`
+            : `<span><b>${formatDisplayWeight(s.weight)}</b> ${state.unit} × <b>${esc(String(s.reps))}</b></span>`;
           return `<div style="display:flex; gap:8px; align-items:center; font-size:13px; padding:3px 0; border-bottom:1px solid var(--border);">`
             + `<span style="min-width:44px; color:var(--text-sub);">Set ${i + 1}</span>`
             + `<span class="type-label">${t}</span>`
             + `<span style="flex:1;"></span>`
-            + `<span><b>${formatDisplayWeight(s.weight)}</b> ${state.unit} × <b>${esc(String(s.reps))}</b></span>`
+            + valueHtml
             + `</div>`;
         }).join('');
         const noteLine = item.note
@@ -4522,13 +5106,28 @@
       }
       const exHtml = (d.exercises || []).map((exItem, exIdx) => {
         const exInfo = state.exercises.find(e => e.id === exItem.exId) || { name: 'Exercise' };
+        const durEx = isDurationEx(exInfo);
+        const durKg = durEx && durationSetAllowsWeight(exInfo);
         let normalCounter = 1;
         const setsHtml = (exItem.sets || []).map((s, sIdx) => {
           const t = normSetType(s && s.type);
           const label = t === 'N' ? normalCounter++ : t;
           const key = exIdx + ':' + sIdx;
-          const err = histEditErrors[key] || { weight: '', reps: '' };
-          const rowMsg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          const err = histEditErrors[key] || { weight: '', reps: '', duration: '' };
+          const rowMsg = [err.weight, err.reps, err.duration].filter(Boolean).join(' · ');
+          if (durEx) {
+            // P2-12: a hold is edited as a time, with the same optional kg.
+            const clock = Number(s.durationSec) >= 1 ? formatDurationClock(Math.round(Number(s.durationSec))) : '';
+            return `
+              <div class="set-row set-row-duration">
+                <button class="set-type-btn set-type-${t}" onclick="histCycleSetType(${exIdx}, ${sIdx})">${label}</button>
+                <input id="hist-st-${exIdx}-${sIdx}" type="text" class="set-input ${err.duration ? 'invalid' : ''}" value="${clock}" placeholder="1:05" oninput="updateHistSetVal(${exIdx}, ${sIdx}, 'duration', this.value)" onchange="histSetFieldChange(${exIdx}, ${sIdx})">
+                ${durKg ? `<input id="hist-sw-${exIdx}-${sIdx}" type="number" class="set-input ${err.weight ? 'invalid' : ''}" value="${s.weight === '' || s.weight === undefined || s.weight === null ? '' : formatDisplayWeight(s.weight)}" placeholder="0" oninput="updateHistSetVal(${exIdx}, ${sIdx}, 'weight', this.value)" onchange="histSetFieldChange(${exIdx}, ${sIdx})">` : ''}
+                <button class="btn btn-danger" style="padding:4px 8px; font-size:12px;" onclick="removeHistSet(${exIdx}, ${sIdx})">✕</button>
+                <div id="hist-serr-${exIdx}-${sIdx}" class="set-error"${rowMsg ? '' : ' style="display:none;"'}>${esc(rowMsg)}</div>
+              </div>
+            `;
+          }
           return `
             <div class="set-row">
               <button class="set-type-btn set-type-${t}" onclick="histCycleSetType(${exIdx}, ${sIdx})">${label}</button>
@@ -4597,7 +5196,7 @@
 
     function histSetFieldError(exIdx, sIdx, field, msg) {
       const key = exIdx + ':' + sIdx;
-      if (!histEditErrors[key]) histEditErrors[key] = { weight: '', reps: '' };
+      if (!histEditErrors[key]) histEditErrors[key] = { weight: '', reps: '', duration: '' };
       histEditErrors[key][field] = msg;
     }
 
@@ -4606,7 +5205,7 @@
       if (!histEditErrors[key]) return;
       if (field) {
         histEditErrors[key][field] = '';
-        if (!histEditErrors[key].weight && !histEditErrors[key].reps) delete histEditErrors[key];
+        if (!histEditErrors[key].weight && !histEditErrors[key].reps && !histEditErrors[key].duration) delete histEditErrors[key];
       } else {
         delete histEditErrors[key];
       }
@@ -4615,9 +5214,10 @@
     function paintHistSetRowError(exIdx, sIdx) {
       try {
         const key = exIdx + ':' + sIdx;
-        const err = histEditErrors[key] || { weight: '', reps: '' };
+        const err = histEditErrors[key] || { weight: '', reps: '', duration: '' };
         const wEl = document.getElementById('hist-sw-' + exIdx + '-' + sIdx);
         const rEl = document.getElementById('hist-sr-' + exIdx + '-' + sIdx);
+        const tEl = document.getElementById('hist-st-' + exIdx + '-' + sIdx);
         const eEl = document.getElementById('hist-serr-' + exIdx + '-' + sIdx);
         if (wEl && wEl.classList) {
           if (err.weight) wEl.classList.add('invalid');
@@ -4627,8 +5227,12 @@
           if (err.reps) rEl.classList.add('invalid');
           else rEl.classList.remove('invalid');
         }
+        if (tEl && tEl.classList) {
+          if (err.duration) tEl.classList.add('invalid');
+          else tEl.classList.remove('invalid');
+        }
         if (eEl) {
-          const msg = (err.weight && err.reps) ? err.weight + ' · ' + err.reps : (err.weight || err.reps || '');
+          const msg = [err.weight, err.reps, err.duration].filter(Boolean).join(' · ');
           if ('textContent' in eEl) eEl.textContent = msg;
           if (eEl.style) eEl.style.display = msg ? '' : 'none';
         }
@@ -4640,9 +5244,25 @@
     function updateHistSetVal(exIdx, sIdx, field, val) {
       if (!editingHistDraft || !editingHistDraft.exercises[exIdx] || !editingHistDraft.exercises[exIdx].sets[sIdx]) return false;
       const draft = editingHistDraft.exercises[exIdx].sets[sIdx];
+      // P2-12: the hold time lives on durationSec, not on a field named
+      // "duration", so it is mapped here for both the empty and the parse path.
+      const storeKey = field === 'duration' ? 'durationSec' : field;
       if (val === '' || val === null || val === undefined) {
-        draft[field] = '';
+        draft[storeKey] = '';
         clearHistSetError(exIdx, sIdx, field);
+        paintHistSetRowError(exIdx, sIdx);
+        return true;
+      }
+      if (field === 'duration') {
+        const sec = parseDurationInput(val);
+        const err = getDurationError(sec);
+        if (err) {
+          histSetFieldError(exIdx, sIdx, 'duration', err);
+          paintHistSetRowError(exIdx, sIdx);
+          return false;
+        }
+        draft.durationSec = sec;
+        clearHistSetError(exIdx, sIdx, 'duration');
         paintHistSetRowError(exIdx, sIdx);
         return true;
       }
@@ -4695,6 +5315,10 @@
         const rEl = document.getElementById('hist-sr-' + exIdx + '-' + sIdx);
         if (rEl && 'value' in rEl && s.reps !== '' && s.reps !== null && s.reps !== undefined) {
           rEl.value = String(Number(s.reps));
+        }
+        const tEl = document.getElementById('hist-st-' + exIdx + '-' + sIdx);
+        if (tEl && 'value' in tEl && Number(s.durationSec) >= 1) {
+          tEl.value = formatDurationClock(Math.round(Number(s.durationSec)));
         }
       } catch (e) {}
       paintHistSetRowError(exIdx, sIdx);
@@ -4752,12 +5376,13 @@
       histEditErrors = {};
       let bad = 0;
       (d.exercises || []).forEach((ex, ei) => {
+        const exType = exerciseTypeById(ex && ex.exId);
         (ex.sets || []).forEach((s, si) => {
-          const wErr = getWeightErrorKg(s.weight);
-          const rErr = getRepsError(s.reps);
-          if (wErr || rErr) {
-            histSetFieldError(ei, si, 'weight', wErr);
-            histSetFieldError(ei, si, 'reps', rErr);
+          const errs = setFieldErrorsFor(s, exType);
+          if (errs.weight || errs.reps || errs.duration) {
+            if (errs.weight) histSetFieldError(ei, si, 'weight', errs.weight);
+            if (errs.reps) histSetFieldError(ei, si, 'reps', errs.reps);
+            if (errs.duration) histSetFieldError(ei, si, 'duration', errs.duration);
             bad++;
           }
         });
@@ -4777,11 +5402,16 @@
       const dt = Number(d.date);
       w.date = (isFinite(dt) && dt > 0) ? Math.min(dt, Date.now()) : w.date;
       w.durationSec = Math.max(0, Math.round(Number(d.durationSec) || 0));
-      w.exercises = kept.map(ex => ({
-        exId: ex.exId,
-        note: String(ex.note || '').slice(0, 140),
-        sets: ex.sets.map(s => ({ type: normSetType(s.type), weight: Number(s.weight), reps: Number(s.reps), done: true }))
-      }));
+      w.exercises = kept.map(ex => {
+        const exType = exerciseTypeById(ex && ex.exId);
+        return {
+          exId: ex.exId,
+          note: String(ex.note || '').slice(0, 140),
+          sets: ex.sets.map(s => setUsesDuration(s, exType)
+            ? pickDurationHistorySet(s)
+            : { type: normSetType(s.type), weight: Number(s.weight), reps: Number(s.reps), done: true })
+        };
+      });
       const score = scoreHistExercises(w.exercises, w.id);
       w.totalVolume = score.totalVolume;
       w.totalSets = score.totalSets;
@@ -4889,12 +5519,17 @@
           const inst = seenInst[item.exId] || 0;
           seenInst[item.exId] = inst + 1;
           const laneCount = {};
+          const exType = exerciseTypeById(item.exId);
           const sets = (item.sets || []).map(s => {
             // P2-08: repeat keeps each set's type as well as the count.
             const t = normSetType(s && s.type);
             const lane = laneCount[t] || 0;
             laneCount[t] = lane + 1;
             const prev = getPreviousSet(item.exId, lane, t, inst, null);
+            // P2-12: a timed exercise repeats as a time, not reps.
+            if (isDurationEx({ type: exType })) {
+              return { type: t, weight: prev ? prev.weight : '', durationSec: (prev && Number(prev.durationSec) >= 1) ? Math.round(Number(prev.durationSec)) : '', done: false };
+            }
             return { type: t, weight: prev ? prev.weight : '', reps: prev ? prev.reps : '', done: false };
           });
           // History stores no per-exercise rest; fall back to the default.
@@ -5202,7 +5837,9 @@
           const primary = exPrimary(ex);
           const bucket = MUSCLE_BUCKETS[primary] || primary;
           if (counts[bucket] === undefined) return; // Full body / unmapped
-          counts[bucket] += metricCountingSets(item.sets).length;
+          // P2-12: a completed hold counts as one set too (warm-ups excluded),
+          // so a plank session shows under Core without inventing any volume.
+          counts[bucket] += metricCountingSets(item.sets).length + durationCountingSets(item.sets).length;
         });
       });
       return counts;
@@ -6879,7 +7516,12 @@
     try {
       checkForUpdate();
       document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible') checkForUpdate();
+        if (document.visibilityState === 'visible') {
+          // P2-12: the clock may be stale after a background spell; repaint it
+          // (and let a target that passed meanwhile fire its one vibration).
+          try { paintRunningSetClocks(); } catch (e) {}
+          checkForUpdate();
+        }
       });
     } catch (e) {}
   </script>
