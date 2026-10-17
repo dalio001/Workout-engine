@@ -359,6 +359,7 @@
       overflow-y: auto;
       flex: 1;
     }
+    .modal-content.sheet { max-width: 412px; }
 
     .badge {
       display: inline-block;
@@ -629,6 +630,11 @@
         <div id="muscleChart"></div>
       </div>
 
+      <div class="card" id="profileRecordsCard">
+        <div style="font-weight:700;">My records</div><div style="font-size:12px; color:var(--text-sub); margin:2px 0 8px;">Tap an exercise to see its progress</div>
+        <div id="profileRecords"></div>
+      </div>
+
       <div class="card">
         <div style="font-weight:700; margin-bottom:10px;">Settings & Data Backup</div>
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
@@ -893,6 +899,17 @@
     </div>
   </div>
 
+  <!-- EXERCISE PROGRESS SHEET (P5-01 / P5-02) -->
+  <div class="modal" id="exProgressModal">
+    <div class="modal-content sheet" style="max-width:412px;">
+      <div class="modal-header">
+        <span id="exProgressTitle">Exercise Progress</span>
+        <button class="btn" onclick="closeExerciseProgress()">✕</button>
+      </div>
+      <div class="modal-body" id="exProgressBody" style="padding-top:10px;"></div>
+    </div>
+  </div>
+
   <!-- FINISH REVIEW MODAL (P2-01 personal part) -->
   <div class="modal" id="finishReviewModal">
     <div class="modal-content">
@@ -1002,6 +1019,246 @@
     const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight', 'Kettlebell', 'Band', 'Other'];
     const EXERCISE_TYPES = ['weight_reps', 'bodyweight_reps', 'assisted', 'duration'];
     const TYPE_LABELS = { weight_reps: 'Weight × reps', bodyweight_reps: 'BW × reps', assisted: 'Assisted', duration: 'Duration' };
+
+    /* P5-01: Metric dictionary (versioned, pure, no state writes). */
+    const METRICS_VERSION = 1;
+
+    function metricCountingSets(sets) {
+      const out = [];
+      if (!Array.isArray(sets)) return out;
+      for (let i = 0; i < sets.length; i++) {
+        const s = sets[i];
+        if (!s || typeof s !== 'object') continue;
+        const t = normSetType(s && s.type);
+        if (t === 'W') continue; // warm-up never counts
+        const reps = Number(s.reps);
+        const weight = Number(s.weight);
+        if (!isFinite(reps) || reps < 1) continue;
+        if (!isFinite(weight) || weight < 0) continue;
+        out.push({ index: i, type: t, weight: weight, reps: reps, done: !!s.done });
+      }
+      return out;
+    }
+
+    function isLoadSet(s) {
+      if (!s || typeof s !== 'object') return false;
+      const t = normSetType(s && s.type);
+      if (t === 'W') return false;
+      const reps = Number(s.reps);
+      const weight = Number(s.weight);
+      if (!isFinite(reps) || reps < 1) return false;
+      if (!isFinite(weight) || weight <= 0) return false;
+      return true;
+    }
+
+    function epley1RMKg(weight, reps) {
+      const w = Number(weight);
+      const r = Number(reps);
+      if (!isFinite(w) || !isFinite(r)) return null;
+      if (w <= 0) return null;
+      if (r < 1 || r > 12) return null;
+      if (r === 1) return w;
+      return w * (1 + r / 30);
+    }
+
+    function usesLoadMetrics(ex) {
+      return !!(ex && (ex.type === 'weight_reps'));
+    }
+
+    /* P5-01: Records from history (recomputed; earliest date wins ties). */
+    function exerciseRecords(exId) {
+      const records = {
+        heaviestWeight: null,
+        bestE1RM: null,
+        bestSetVolume: null,
+        bestSessionVolume: null,
+        mostRepsInSet: null,
+        repRecords: {} // key = reps (1..12), value = { valueKg, reps, dateMs, histId, setIdx }
+      };
+      const ex = (typeof state !== 'undefined' && state.exercises) ? state.exercises.find(e => e.id === exId) : null;
+      const loadEx = usesLoadMetrics(ex);
+      // Iterate oldest -> newest; first best wins (earliest date keeps).
+      const history = (typeof state !== 'undefined' && state.history) ? (state.history.slice().sort((a, b) => (Number(a.date) || 0) - (Number(b.date) || 0))) : [];
+      for (let hi = 0; hi < history.length; hi++) {
+        const w = history[hi];
+        const item = (w.exercises || []).find(it => it && it.exId === exId);
+        if (!item || !Array.isArray(item.sets)) continue;
+        const countingSets = metricCountingSets(item.sets);
+        // Most reps in one set (any counting set)
+        for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+          const cs = countingSets[sIdx];
+          const currentMost = records.mostRepsInSet;
+          if (!currentMost || cs.reps > currentMost.reps) {
+            records.mostRepsInSet = { reps: cs.reps, weightKg: loadEx ? cs.weight : null, dateMs: w.date, histId: w.id, setIdx: cs.index };
+          }
+        }
+        // Rep records (load only for weight_reps)
+        for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+          const cs = countingSets[sIdx];
+          const r = Math.round(cs.reps);
+          if (r >= 1 && r <= 12) {
+            const current = records.repRecords[String(r)];
+            if (!current) {
+              records.repRecords[String(r)] = { valueKg: loadEx ? cs.weight : null, reps: r, dateMs: w.date, histId: w.id, setIdx: cs.index };
+            } else if (loadEx && cs.weight > current.valueKg) {
+              records.repRecords[String(r)] = { valueKg: cs.weight, reps: r, dateMs: w.date, histId: w.id, setIdx: cs.index };
+            }
+          }
+        }
+        // Load records (only weight_reps and weight > 0)
+        if (loadEx) {
+          // Heaviest weight
+          let bestWeight = null;
+          for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+            const cs = countingSets[sIdx];
+            if (cs.weight > 0 && (!bestWeight || cs.weight > bestWeight.valueKg)) {
+              bestWeight = { valueKg: cs.weight, reps: cs.reps, dateMs: w.date, histId: w.id, setIdx: cs.index };
+            }
+          }
+          if (bestWeight && (!records.heaviestWeight || bestWeight.valueKg > records.heaviestWeight.valueKg)) {
+            records.heaviestWeight = bestWeight;
+          }
+          // Best e1RM (only reps 1..12)
+          let bestE1RM = null;
+          for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+            const cs = countingSets[sIdx];
+            const rm = epley1RMKg(cs.weight, cs.reps);
+            if (rm !== null) {
+              if (!bestE1RM || rm > bestE1RM.valueKg) {
+                bestE1RM = { valueKg: rm, weightKg: cs.weight, reps: cs.reps, dateMs: w.date, histId: w.id, setIdx: cs.index };
+              }
+            }
+          }
+          if (bestE1RM && (!records.bestE1RM || bestE1RM.valueKg > records.bestE1RM.valueKg)) {
+            records.bestE1RM = bestE1RM;
+          }
+          // Best set volume (weight*reps for counting sets)
+          let bestSetVol = null;
+          for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+            const cs = countingSets[sIdx];
+            const vol = cs.weight * cs.reps;
+            if (!bestSetVol || vol > bestSetVol.valueKg) {
+              bestSetVol = { valueKg: vol, weightKg: cs.weight, reps: cs.reps, dateMs: w.date, histId: w.id, setIdx: cs.index };
+            }
+          }
+          if (bestSetVol && (!records.bestSetVolume || bestSetVol.valueKg > records.bestSetVolume.valueKg)) {
+            records.bestSetVolume = bestSetVol;
+          }
+          // Session volume per exercise = sum of counting-set volume
+          let sessionVol = 0;
+          for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+            sessionVol += countingSets[sIdx].weight * countingSets[sIdx].reps;
+          }
+          if (!records.bestSessionVolume || sessionVol > records.bestSessionVolume.valueKg) {
+            records.bestSessionVolume = { valueKg: sessionVol, dateMs: w.date, histId: w.id };
+          }
+        } else {
+          // Non-load exercises: session volume = sum of counting-set reps (as a proxy; no weight)
+          // We keep bestSessionVolume as sum of reps for non-weight, but we don't invent kg.
+          let sessionReps = 0;
+          for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+            sessionReps += countingSets[sIdx].reps;
+          }
+          if (!records.bestSessionVolume || sessionReps > records.bestSessionVolume.valueKg) {
+            records.bestSessionVolume = { valueKg: sessionReps, dateMs: w.date, histId: w.id };
+          }
+        }
+      }
+      return records;
+    }
+
+    function exerciseSessions(exId) {
+      const out = [];
+      const history = (typeof state !== 'undefined' && state.history) ? state.history.slice() : [];
+      // Newest first (as shown in UI); dictionary uses oldest-first for tie rules.
+      const sortedOldestFirst = history.slice().sort((a, b) => (Number(a.date) || 0) - (Number(b.date) || 0));
+      for (let i = 0; i < sortedOldestFirst.length; i++) {
+        const w = sortedOldestFirst[i];
+        const item = (w.exercises || []).find(it => it && it.exId === exId);
+        if (!item || !Array.isArray(item.sets)) continue;
+        const countingSets = metricCountingSets(item.sets);
+        const points = { e1rm: null, heaviest: null, volume: 0, bestReps: null };
+        for (let sIdx = 0; sIdx < countingSets.length; sIdx++) {
+          const cs = countingSets[sIdx];
+          const vol = cs.weight * cs.reps;
+          points.volume += vol;
+          const rm = epley1RMKg(cs.weight, cs.reps);
+          if (rm !== null && (points.e1rm === null || rm > points.e1rm)) points.e1rm = rm;
+          if (points.heaviest === null || cs.weight > points.heaviest) points.heaviest = cs.weight;
+          if (points.bestReps === null || cs.reps > points.bestReps) points.bestReps = cs.reps;
+        }
+        const session = { histId: w.id, dateMs: w.date, sets: countingSets.map(cs => ({ index: cs.index, type: cs.type, weightKg: cs.weight, reps: cs.reps, counts: true })), points: points, isPR: false };
+        // Determine PR sets: a set is PR if it beats the running best of any record kind at that session time.
+        // Simplified: compare against all previous sessions' best values (not exact tie-policy here).
+        const prevSessions = sortedOldestFirst.slice(0, i); // older only
+        let prevBestWeight = 0, prevBestE1RM = 0, prevBestSetVol = 0, prevBestReps = 0, prevBestSessionVol = 0;
+        for (let pi = 0; pi < prevSessions.length; pi++) {
+          const pw = prevSessions[pi];
+          const pItem = (pw.exercises || []).find(it => it && it.exId === exId);
+          if (pItem && Array.isArray(pItem.sets)) {
+            const pCounting = metricCountingSets(pItem.sets);
+            for (let sIdx = 0; sIdx < pCounting.length; sIdx++) {
+              const cs = pCounting[sIdx];
+              if (cs.weight > prevBestWeight) prevBestWeight = cs.weight;
+              const rm = epley1RMKg(cs.weight, cs.reps);
+              if (rm !== null && rm > prevBestE1RM) prevBestE1RM = rm;
+              const vol = cs.weight * cs.reps;
+              if (vol > prevBestSetVol) prevBestSetVol = vol;
+              if (cs.reps > prevBestReps) prevBestReps = cs.reps;
+            }
+            let pVol = 0;
+            for (let sIdx = 0; sIdx < pCounting.length; sIdx++) pVol += pCounting[sIdx].weight * pCounting[sIdx].reps;
+            if (pVol > prevBestSessionVol) prevBestSessionVol = pVol;
+          }
+        }
+        /* PR badge (P5-01): only a new heaviest weight or a new best est. 1RM
+           beats the running best; equal sets never re-badge; the first
+           session is the baseline (no badge); bodyweight: new most reps. */
+        const loadEx = usesLoadMetrics((state.exercises || []).find(e => e.id === exId));
+        let runW = prevBestWeight, runRM = prevBestE1RM, runReps = prevBestReps;
+        const isBaseline = prevSessions.every(pw => !(pw.exercises || []).some(it => it && it.exId === exId));
+        session.sets = session.sets.map((set, idx) => {
+          const cs = countingSets[idx];
+          let isPR = false;
+          const rm = epley1RMKg(cs.weight, cs.reps);
+          if (loadEx) {
+            if (cs.weight > 0 && cs.weight > runW) { if (!isBaseline) isPR = true; runW = cs.weight; }
+            if (rm !== null && rm > runRM) { if (!isBaseline) isPR = true; runRM = rm; }
+          } else if (cs.reps > runReps) { if (!isBaseline) isPR = true; runReps = cs.reps; }
+          return { index: set.index, type: set.type, weightKg: set.weightKg, reps: set.reps, counts: set.counts, isPR: isPR };
+        });
+        /* Warm-ups are shown in the timeline (marked W) but never count. */
+        const shown = item.sets.map((st, i) => ({ st, i })).filter(o => o.st && o.st.done !== false && Number(o.st.reps) > 0);
+        session.sets = shown.map(o => {
+          const c = session.sets.find(x => x.index === o.i);
+          return c || { index: o.i, type: normSetType(o.st.type), weightKg: Number(o.st.weight) || 0, reps: Number(o.st.reps) || 0, counts: false, isPR: false };
+        });
+        out.push(session);
+      }
+      return out;
+    }
+
+    function exerciseSeries(points, metric, range) {
+      const nowMs = Date.now();
+      const daysBack = range === '1M' ? 30 : range === '3M' ? 90 : range === '1Y' ? 365 : 0;
+      const cutoff = daysBack > 0 ? nowMs - daysBack * 86400000 : 0;
+      const filtered = points.filter(p => p.dateMs >= cutoff);
+      return filtered.map(p => {
+        let y = null;
+        if (metric === 'e1rm') y = p.points.e1rm;
+        else if (metric === 'heaviest') y = p.points.heaviest;
+        else if (metric === 'volume') y = p.points.volume;
+        else if (metric === 'bestReps') y = p.points.bestReps;
+        return { x: p.dateMs, y: y, histId: p.histId, label: new Date(p.dateMs).toLocaleDateString() };
+      }).filter(pt => pt.y !== null && pt.y !== undefined);
+    }
+
+    function exerciseProgressModel(exId) {
+      const records = exerciseRecords(exId);
+      const sessions = exerciseSessions(exId);
+      return { records: records, sessions: sessions, exId: exId };
+    }
+
     const EXERCISE_ROWS = [
       ['ex1', 'Bench Press (Barbell)', 'Barbell', 'Chest', ['Shoulders', 'Triceps'], 'weight_reps'],
       ['ex2', 'Incline Dumbbell Press', 'Dumbbell', 'Chest', ['Shoulders', 'Triceps'], 'weight_reps'],
@@ -2435,7 +2692,7 @@
         block.innerHTML = `
           <div class="ex-block-header">
             <div>
-              <div class="ex-name">${esc(exInfo.name)}</div>
+              <div class="ex-name" style="cursor:pointer;" onclick="openExerciseProgress('${esc(exItem.exId)}','workout')">${esc(exInfo.name)}</div>
               <span class="badge">${esc(exPrimary(exInfo))}</span>
               <button class="rest-chip" style="margin-left:6px;" onclick="openRestPicker(${exIdx})">${formatRestLabel(restSec)}</button>
               <button class="btn" style="margin-left:6px; padding:4px 8px; font-size:12px;" title="Plate calculator" onclick="openPlateCalcFor(${exIdx})">🧮</button>
@@ -3410,6 +3667,270 @@
       return out;
     }
 
+    /* P5-01 / P5-02: Exercise progress page (linked from catalogue, history, live workout, profile). */
+    var progressExId = null;
+    var progressOrigin = null;
+    var progressMetric = 'e1rm';
+    var progressRange = 'All';
+
+    function openExerciseProgress(exId, origin) {
+      progressExId = exId;
+      progressOrigin = origin || null;
+      progressMetric = 'e1rm';
+      progressRange = 'All';
+      renderExerciseProgress();
+      document.getElementById('exProgressModal').classList.add('open');
+    }
+
+    function closeExerciseProgress() {
+      progressExId = null;
+      progressOrigin = null;
+      document.getElementById('exProgressModal').classList.remove('open');
+    }
+
+    function setProgressMetric(metric) {
+      progressMetric = metric;
+      renderExerciseProgress();
+    }
+
+    function setProgressRange(range) {
+      progressRange = range;
+      renderExerciseProgress();
+    }
+
+    function renderProfileRecords() {
+      // Top 8 exercises by last-done date (newest session date) that have at least one counting set.
+      const lastDone = {};
+      const records = {};
+      if (typeof state !== 'undefined' && state.history && Array.isArray(state.history)) {
+        state.history.slice().sort((a, b) => (Number(b.date) || 0) - (Number(a.date) || 0)).forEach(w => {
+          (w.exercises || []).forEach(item => {
+            if (!item || !item.exId) return;
+            const ex = (state.exercises || []).find(e => e.id === item.exId);
+            if (!ex) return;
+            const counting = metricCountingSets(item.sets || []);
+            if (counting.length === 0) return;
+            if (!lastDone[item.exId] || (w.date || 0) > (lastDone[item.exId] || 0)) {
+              lastDone[item.exId] = w.date || 0;
+              records[item.exId] = { exId: item.exId, exName: ex.name, lastDateMs: w.date || 0 };
+            }
+          });
+        });
+      }
+      const sorted = Object.values(records).sort((a, b) => b.lastDateMs - a.lastDateMs).slice(0, 8);
+      const containerId = 'profileRecords';
+      let html = '';
+      if (sorted.length === 0) {
+        html = '<div style="font-size:13px; color:var(--text-sub);">No completed exercises yet — finish a workout to see records.</div>';
+      } else {
+        html = sorted.map(r => {
+          const ex = (state && state.exercises) ? state.exercises.find(e => e.id === r.exId) : null;
+          const primary = ex ? (exPrimary(ex)) : '';
+          const recs = r.exId ? exerciseRecords(r.exId) : null;
+          let valueStr = '—';
+          if (recs) {
+            if (recs.heaviestWeight && usesLoadMetrics(ex)) valueStr = formatDisplayWeight(recs.heaviestWeight.valueKg) + ' ' + state.unit + ' (heaviest)';
+            else if (recs.mostRepsInSet) valueStr = recs.mostRepsInSet.reps + ' reps (best)';
+            else valueStr = '—';
+          }
+          const dateStr = new Date(r.lastDateMs).toLocaleDateString();
+          return '<div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:6px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openExerciseProgress(\'' + esc(r.exId) + '\', \'profile\')">'
+            + '<div><b>' + esc(r.exName) + '</b> <span style="color:var(--text-sub);">' + esc(primary || '') + '</span></div>'
+            + '<div style="text-align:right; font-size:12px; color:var(--text-sub);">' + esc(valueStr) + '<br>' + esc(dateStr) + '</div>'
+            + '</div>';
+        }).join('');
+      }
+      // Insert/update the records card in the profile tab if present, else store for renderProfileStats to inject.
+      const body = document.getElementById('profileRecords');
+      if (body) body.innerHTML = html;
+      return html;
+    }
+
+    function renderExerciseProgress() {
+      const body = document.getElementById('exProgressBody');
+      const ex = (state && state.exercises) ? state.exercises.find(e => e.id === progressExId) : null;
+      if (!ex) {
+        body.innerHTML = '<div class="card">Exercise not found.</div>';
+        return;
+      }
+      const primary = exPrimary(ex);
+      document.getElementById('exProgressTitle').textContent = esc(ex.name) + ' · ' + esc(primary);
+
+      const model = exerciseProgressModel(progressExId);
+      const sessions = model.sessions;
+      const records = model.records;
+      const loadEx = usesLoadMetrics(ex);
+
+      // Metric buttons (only show load metrics if load exercise; always show reps)
+      const metricButtons = loadEx
+        ? [
+            { key: 'e1rm', label: 'Best set (e1RM)' },
+            { key: 'heaviest', label: 'Heaviest weight' },
+            { key: 'volume', label: 'Session volume' },
+            { key: 'bestReps', label: 'Best reps' }
+          ]
+        : [
+            { key: 'bestReps', label: 'Best reps' },
+            { key: 'volume', label: 'Session volume' },
+            { key: 'e1rm', label: 'Best set (e1RM)' },
+            { key: 'heaviest', label: 'Heaviest weight' }
+          ];
+
+      // Range buttons
+      const rangeLabels = { '1M': '1M', '3M': '3M', '1Y': '1Y', 'All': 'All' };
+
+      let chartHtml = '';
+      const points = exerciseSeries(sessions.map(s => s), progressMetric, progressRange);
+      // If metric is load-based and exercise is non-load, fall back to bestReps.
+      let effectiveMetric = progressMetric;
+      if (!loadEx && (effectiveMetric === 'e1rm' || effectiveMetric === 'heaviest')) effectiveMetric = 'bestReps';
+      const chartPoints = exerciseSeries(sessions.map(s => s), effectiveMetric, progressRange);
+
+      if (chartPoints.length === 0) {
+        chartHtml = '<div style="text-align:center; padding:20px 0; color:var(--text-sub); font-size:14px;">No sessions yet</div>';
+      } else if (chartPoints.length === 1) {
+        chartHtml = '<div style="text-align:center; padding:20px 0; color:var(--text-sub); font-size:14px;">1 session: do another to see a line</div>'
+          + '<svg viewBox="0 0 360 160" style="width:100%; height:auto; display:block;" xmlns="http://www.w3.org/2000/svg">'
+          + '<circle cx="180" cy="80" r="4" fill="#3b82f6"/>'
+          + '</svg>';
+      } else {
+        // Simple inline SVG polyline chart
+        const w = 360, h = 160, pad = { top: 20, right: 20, bottom: 30, left: 30 };
+        const chartW = w - pad.left - pad.right;
+        const chartH = h - pad.top - pad.bottom;
+        const maxVal = Math.max(...chartPoints.map(p => (p.y || 0)));
+        const minVal = Math.min(...chartPoints.map(p => (p.y || 0)));
+        const rangeVal = Math.max(1, maxVal - (minVal || 0));
+        /* Axis spans the data (lowest..highest +-15%), so labels match the lines. */
+        const span = Math.max(maxVal - minVal, Math.abs(maxVal) * 0.05, 1);
+        const loY = Math.max(0, minVal - span * 0.15), hiY = maxVal + span * 0.15;
+
+        const xScale = (i) => pad.left + (i / (chartPoints.length - 1 || 1)) * chartW;
+        const yScale = (v) => pad.top + chartH - (((v - loY) / (hiY - loY)) * chartH);
+
+        let polylinePoints = chartPoints.map((p, i) => (xScale(i) || 0) + ',' + (yScale(p.y || 0) || 0)).join(' ');
+        let dotsHtml = chartPoints.map((p, i) => {
+          return '<circle cx="' + (xScale(i) || 0) + '" cy="' + (yScale(p.y || 0) || 0) + '" r="3.5" fill="#3b82f6" stroke="#151c2c" stroke-width="1.5"/>';
+        }).join('');
+
+        // Min/max labels
+        const maxLabelY = yScale(maxVal);
+        const minLabelY = yScale(minVal || 0);
+
+        let metricLabel = '';
+        if (effectiveMetric === 'e1rm') metricLabel = '1RM (est.) — ' + (loadEx ? (state.unit || 'KG') : 'reps');
+        else if (effectiveMetric === 'heaviest') metricLabel = 'Heaviest weight — ' + (loadEx ? (state.unit || 'KG') : '—');
+        else if (effectiveMetric === 'volume') metricLabel = 'Session volume — ' + (loadEx ? (state.unit || 'KG') : 'reps');
+        else metricLabel = 'Best reps';
+
+        chartHtml = '<div style="font-size:12px; color:var(--text-sub); margin-bottom:6px;">' + esc(metricLabel) + '</div>'
+          + '<svg viewBox="0 0 360 160" style="width:100%; height:auto; display:block; background:var(--bg-elevated); border-radius:8px; border:1px solid var(--border);" xmlns="http://www.w3.org/2000/svg">'
+          + '<line x1="' + pad.left + '" y1="' + maxLabelY + '" x2="' + (w - pad.right) + '" y2="' + maxLabelY + '" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3 3"/>'
+          + '<line x1="' + pad.left + '" y1="' + minLabelY + '" x2="' + (w - pad.right) + '" y2="' + minLabelY + '" stroke-dasharray="3 3" stroke="var(--border)" stroke-width="0.5"/>'
+          + '<polyline points="' + polylinePoints + '" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+          + dotsHtml
+          + '<text x="4" y="' + (maxLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (loadEx ? formatDisplayWeight(Math.round(maxVal * 100) / 100) : Math.round(maxVal)) + '</text>'
+          + '<text x="4" y="' + (minLabelY + 3) + '" text-anchor="start" font-size="10" fill="#94a3b8" font-family="sans-serif">' + (loadEx ? formatDisplayWeight(Math.round(minVal * 100) / 100) : Math.round(minVal || 0)) + '</text>'
+          + '</svg>';
+      }
+
+      // Metric buttons
+      let metricBtnHtml = '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;">';
+      metricButtons.forEach(m => {
+        const active = progressMetric === m.key ? 'background:#3b82f6;color:#fff;border-color:#3b82f6;' : '';
+        metricBtnHtml += '<button class="btn" style="flex:1; min-height:36px; font-size:12px; padding:6px 8px; ' + active + '" onclick="setProgressMetric(\'' + m.key + '\')">' + esc(m.label) + '</button>';
+      });
+      metricBtnHtml += '</div>';
+
+      // Range buttons
+      let rangeBtnHtml = '<div style="display:flex; gap:6px; margin-bottom:14px;">';
+      ['1M', '3M', '1Y', 'All'].forEach(r => {
+        const active = progressRange === r ? 'background:var(--bg-elevated);border-color:var(--primary);color:var(--primary);' : '';
+        rangeBtnHtml += '<button class="btn" style="flex:1; min-height:36px; font-size:11px; padding:4px 6px; ' + active + '" onclick="setProgressRange(\'' + r + '\')">' + esc(rangeLabels[r]) + '</button>';
+      });
+      rangeBtnHtml += '</div>';
+
+      // Note for non-estimated
+      let noteHtml = '';
+      if (loadEx && progressMetric === 'e1rm') {
+        noteHtml = '<div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">Estimated 1RM uses Epley (1 + reps/30). Not estimated above 12 reps.</div>';
+      } else if (!loadEx && progressMetric === 'e1rm') {
+        noteHtml = '<div style="font-size:11px; color:var(--text-sub); margin-bottom:10px;">Load metrics not available for this exercise type.</div>';
+      }
+
+      // Records card
+      let recordsHtml = '<h3 style="margin-top:4px;">Records</h3>';
+      if (!loadEx) {
+        recordsHtml += '<div style="font-size:12px; color:var(--text-sub); margin-bottom:8px;">Load metrics not shown for this exercise type. Rep records shown below.</div>';
+      }
+      recordsHtml += '<div class="card" style="padding:12px;">';
+      if (!loadEx) {
+        if (records.mostRepsInSet) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.mostRepsInSet.histId || '')) + '\')"><span>Most reps</span><b>' + records.mostRepsInSet.reps + ' reps</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.mostRepsInSet.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.bestSessionVolume) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border);"><span>Best session (reps total)</span><b>' + Math.round(records.bestSessionVolume.valueKg || 0) + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.bestSessionVolume.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+      } else {
+        if (records.heaviestWeight) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.heaviestWeight.histId || '')) + '\')"><span>Heaviest weight</span><b>' + formatDisplayWeight(records.heaviestWeight.valueKg) + ' ' + state.unit + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.heaviestWeight.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.bestE1RM) {
+          const label = records.bestE1RM.reps === 1 ? ' (same as weight)' : '';
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.bestE1RM.histId || '')) + '\')"><span>Best est. 1RM</span><b>' + formatDisplayWeight(Math.round(records.bestE1RM.valueKg * 100) / 100) + ' ' + state.unit + ' (est.)</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.bestE1RM.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.bestSetVolume) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.bestSetVolume.histId || '')) + '\')"><span>Best set volume</span><b>' + formatDisplayWeight(Math.round(records.bestSetVolume.valueKg * 100) / 100) + ' ' + state.unit + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.bestSetVolume.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.bestSessionVolume) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.bestSessionVolume.histId || '')) + '\')"><span>Best session volume</span><b>' + formatDisplayWeight(Math.round(records.bestSessionVolume.valueKg * 100) / 100) + ' ' + state.unit + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.bestSessionVolume.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        if (records.mostRepsInSet) {
+          recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(records.mostRepsInSet.histId || '')) + '\')"><span>Most reps in one set</span><b>' + records.mostRepsInSet.reps + ' reps</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(records.mostRepsInSet.dateMs || 0).toLocaleDateString()) + '</span></div>';
+        }
+        // Rep records
+        const repKeys = Object.keys(records.repRecords || {}).map(r => parseInt(r)).filter(r => r >= 1 && r <= 12).sort((a, b) => a - b);
+        for (let rk = 0; rk < repKeys.length; rk++) {
+          const r = repKeys[rk];
+          const rr = records.repRecords[String(r)];
+          if (rr) {
+            recordsHtml += '<div style="display:flex; justify-content:space-between; font-size:13px; padding:4px 0; border-bottom:1px solid var(--border); cursor:pointer;" onclick="openHistDetail(\'' + esc(String(rr.histId || '')) + '\')"><span>Heaviest at ' + r + ' rep' + (r === 1 ? '' : 's') + '</span><b>' + formatDisplayWeight(rr.valueKg) + ' ' + state.unit + '</b> <span style="color:var(--text-sub); font-size:11px;">' + esc(new Date(rr.dateMs || 0).toLocaleDateString()) + '</span></div>';
+          }
+        }
+      }
+      recordsHtml += '</div>';
+
+      // History timeline
+      let timelineHtml = '<h3>Recent sessions</h3>';
+      if (sessions.length === 0) {
+        timelineHtml += '<div style="font-size:13px; color:var(--text-sub);">No completed sessions for this exercise.</div>';
+      } else {
+        // Show newest first (as user expects); sessions array is oldest-first, so reverse.
+        const newestFirst = sessions.slice().reverse();
+        timelineHtml += newestFirst.map(s => {
+          const dateStr = new Date(s.dateMs).toLocaleDateString();
+          let workNo = 0;
+          const setRows = s.sets.map(st => {
+            if (st.type !== 'W') workNo++;
+            const badge = st.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : '';
+            const weightStr = (st.weightKg !== null && st.weightKg !== undefined && st.weightKg > 0) ? formatDisplayWeight(st.weightKg) + ' ' + state.unit : '—';
+            return '<div style="display:flex; justify-content:space-between; font-size:12px; padding:3px 0; border-bottom:1px solid var(--border);">'
+              + '<span>' + (st.type === 'N' ? 'Set ' + workNo : '<b style="color:' + (st.type === 'W' ? 'var(--warning, #f59e0b)' : st.type === 'F' ? 'var(--danger, #ef4444)' : 'var(--primary)') + ';">' + esc(st.type) + '</b> ' + (st.type === 'W' ? 'Warm-up' : st.type === 'F' ? 'Failure' : 'Drop')) + badge + '</span>'
+              + '<span style="color:var(--text-sub);">' + weightStr + ' × ' + esc(String(st.reps)) + '</span>'
+              + '</div>';
+          }).join('');
+          return '<div class="card" style="padding:12px; cursor:pointer;" onclick="openHistDetail(\'' + esc(s.histId) + '\')">'
+            + '<div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; margin-bottom:6px;"><span>' + esc(dateStr) + '</span><span style="color:var(--text-sub); font-size:11px;">' + s.sets.length + ' set' + (s.sets.length === 1 ? '' : 's') + '</span></div>'
+            + setRows
+            + '</div>';
+        }).join('');
+      }
+
+      body.innerHTML = metricBtnHtml + rangeBtnHtml + noteHtml + chartHtml
+        + `<div style="margin-top:14px;">` + recordsHtml + `</div>`
+        + timelineHtml;
+    }
+
     function openExerciseDetail(exId) {
       detailExId = exId;
       renderExerciseDetail();
@@ -3443,6 +3964,7 @@
         <h3>Recent sessions</h3>
         ${histHtml}
         <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+          <button class="btn" style="flex:1; min-height:48px;" onclick="openExerciseProgress('${ex.id}','catalogue')">📈 Progress</button>
           <button class="btn" style="flex:1; min-height:48px;" onclick="toggleFav('${ex.id}')">${ex.fav ? '★ Unfavourite' : '☆ Favourite'}</button>
           ${canEdit ? `<button class="btn" style="flex:1; min-height:48px;" onclick="openCustomExModal('${ex.id}')">✏️ Edit</button>` : ''}
           ${canEdit && !ex.hidden ? `<button class="btn btn-danger" style="flex:1; min-height:48px;" onclick="deleteExercise('${ex.id}')">🗑️ Delete</button>` : ''}
@@ -3647,7 +4169,7 @@
           ? `<div style="font-size:12px; color:var(--text-sub); margin:2px 0 6px;">📝 ${esc(item.note)}</div>`
           : '';
         return `<div style="padding:8px 0; border-bottom:1px solid var(--border);">`
-          + `<div style="font-weight:700; font-size:14px;">${esc(ex.name)}${item.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : ''}</div>`
+          + `<div style="font-weight:700; font-size:14px; cursor:pointer;" onclick="openExerciseProgress('${esc(item.exId)}','hist')">` + esc(ex.name) + ' <span style="color:var(--primary); font-size:12px; font-weight:600;">📈 ›</span>' + `${item.isPR ? ' <span class="badge badge-pr">🏆 PR</span>' : ''}` + `</div>`
           + noteLine + rows + `</div>`;
       }).join('');
       body.innerHTML = `
@@ -4155,6 +4677,7 @@
       const plEl = document.getElementById('platePlatesLbInput');
       if (plEl) plEl.value = ps.platesLb.join(', ');
       renderMyProfile();
+      renderProfileRecords();
 
       /* P2-06: the chart keeps its six buckets; new primaries fold into the
          legacy buckets (Biceps/Triceps/Forearms -> Arms, Quads/Hamstrings/

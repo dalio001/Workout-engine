@@ -197,8 +197,15 @@ const EXPORT_SNIPPET = `;globalThis.__app = {
   obHeightError, obAgeError, obAgeFor, obCanonicalHeightCm, obCanContinue, finishOnboarding,
   addMissingSampleRoutines, removeSeededSampleRoutines,
   showWorkoutTab, renderGettingStarted, dismissGettingStarted,
+  renderProfileStats, renderProfileRecords,
   renderMyProfile, obFormatHeight, obFormatAge,
   get obStep(){ return obStep; }, get obDraft(){ return obDraft; },
+  METRICS_VERSION, metricCountingSets, isLoadSet, epley1RMKg, usesLoadMetrics,
+  exerciseRecords, exerciseSessions, exerciseSeries, exerciseProgressModel,
+  openExerciseProgress, closeExerciseProgress, renderExerciseProgress,
+  setProgressMetric, setProgressRange, renderProfileRecords,
+  get progressExId(){ return progressExId; }, get progressOrigin(){ return progressOrigin; },
+  get progressMetric(){ return progressMetric; }, get progressRange(){ return progressRange; },
   get obWelcomeIdx(){ return obWelcomeIdx; }, get obIsFirstRun(){ return obIsFirstRun; },
 };`;
 
