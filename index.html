@@ -6527,6 +6527,39 @@
         });
       }
     } catch (e) {}
+
+    /* Update check: an installed app kept in the background resumes the old
+       page. When the app comes back to the screen, compare the page's ETag
+       with the one it started with; if Vercel has a newer version, show a
+       bar to reload. The live workout is saved as a draft, so reload is safe. */
+    var pageEtag = null;
+    function showUpdateBar() {
+      if (document.getElementById('updateBar')) return;
+      var bar = document.createElement('button');
+      bar.id = 'updateBar';
+      bar.type = 'button';
+      bar.textContent = '🔄 New version ready — tap to update';
+      bar.setAttribute('style', 'position:fixed; left:12px; right:12px; top:12px; z-index:1000; max-width:412px; margin:0 auto; padding:14px; border:0; border-radius:12px; background:#a3e635; color:#0f172a; font-weight:800; font-size:15px; box-shadow:0 6px 20px rgba(0,0,0,0.4);');
+      bar.onclick = function() { location.reload(); };
+      document.body.appendChild(bar);
+    }
+    function checkForUpdate() {
+      try {
+        if (typeof fetch !== 'function' || location.protocol.indexOf('http') !== 0) return;
+        fetch('./index.html', { method: 'HEAD', cache: 'no-store' }).then(function(r) {
+          var e = r && r.headers ? (r.headers.get('etag') || r.headers.get('last-modified')) : null;
+          if (!e) return;
+          if (pageEtag === null) { pageEtag = e; return; }
+          if (e !== pageEtag) showUpdateBar();
+        }).catch(function() {});
+      } catch (e) {}
+    }
+    try {
+      checkForUpdate();
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') checkForUpdate();
+      });
+    } catch (e) {}
   </script>
 </body>
 </html>
